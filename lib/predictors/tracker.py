@@ -2,7 +2,7 @@ import numpy as np
 
 from typing import Dict, Optional, Tuple
 from nip import nip
-from lib.predictors.traj_predictors import AbstractTrajectoryPredictor
+from lib.predictors.traj_predictors import AbstractTrajectoryPredictor, CovarianceNetPredictor
 
 
 _STATE_DIM = 4
@@ -65,6 +65,10 @@ class _PedestrianTrack:
         self._predicted_covs = pred_covs
 
     @property
+    def current_pose(self) -> np.ndarray:
+        return self._states.last
+
+    @property
     def history(self) -> np.ndarray:
         return self._states.all
 
@@ -105,6 +109,10 @@ class _GhostTrack:
     @property
     def history(self) -> np.ndarray:
         return self._states.all
+
+    @property
+    def current_pose(self) -> np.ndarray:
+        return self._states.last
 
     @property
     def predicted_poses(self) -> np.ndarray:
@@ -179,6 +187,16 @@ class PedestrianTracker:
         preds.update({k: (v.predicted_poses.copy(), v.predicted_covs.copy()) for k, v in self._ghosts.items()})
         return preds
 
+    def get_current_poses(self) -> Dict[int, np.ndarray]:
+        result = {}
+        result.update({k: v.current_pose[:2] for k, v in self._tracks.items()})
+        result.update({k: v.current_pose[:2] for k, v in self._ghosts.items()})
+        return result
+
+    @property
+    def horizon(self) -> int:
+        return self._predictor.horizon
+
     @property
     def joint_track(self) -> Optional[np.ndarray]:
         # Return: (history_length, n_pedestrians, state_dim)
@@ -191,6 +209,10 @@ class PedestrianTracker:
     @property
     def track_dict(self) -> Dict[int, np.ndarray]:
         return {k: v.history.copy() for k, v in self._tracks.items()}
+
+    def reset(self):
+        self._tracks = {}
+        self._ghosts = {}
 
     def _do_predictions_for_tracks(self):
         if len(self._tracks) == 0:
@@ -210,3 +232,21 @@ class PedestrianTracker:
                 self._ghosts.pop(k)
             else:
                 ghost.update()
+
+
+@nip
+class CovarianceNetTrackerFactory:
+
+    def __init__(self,
+                 horizon: int,
+                 max_ghost_tracking_time: int,
+                 device: str = "cpu"):
+        self._horizon = horizon
+        self._max_ghost_tracking_time = max_ghost_tracking_time
+        self._device = device
+
+    def __call__(self):
+        predictor = CovarianceNetPredictor(horizon=self._horizon, device=self._device)
+        tracker = PedestrianTracker(predictor=predictor,
+                                    max_ghost_tracking_time=self._max_ghost_tracking_time)
+        return tracker

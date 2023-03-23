@@ -7,8 +7,8 @@ from nip import nip
 
 class RewardContext:
 
-    def __init__(self, attributes: Dict[str, Any]):
-        self._attributes = attributes
+    def __init__(self, attributes: Optional[Dict[str, Any]] = None):
+        self._attributes = attributes or {}
 
     def has_attribute(self, attribute: str) -> bool:
         return attribute in self._attributes
@@ -17,6 +17,9 @@ class RewardContext:
         if attribute in self._attributes:
             return self._attributes[attribute]
         return None
+
+    def set(self, attribute: str, value: Any) -> None:
+        self._attributes[attribute] = value
 
 
 class AbstractReward(ABC):
