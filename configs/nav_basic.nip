@@ -23,4 +23,5 @@ train_env_factory: !SimpleNavEnvFactory
   agents_sampler: *agents
   reward: *reward
   sim_config: *sim
+  normalize_actions: true
   render: false

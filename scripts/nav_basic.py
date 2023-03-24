@@ -7,6 +7,8 @@ from typing import Optional
 from functools import partial
 from pathlib import Path
 from nip.elements import Element
+from stable_baselines3.common.env_checker import check_env
+
 from lib.envs import AbstractEnvFactory
 
 
@@ -15,6 +17,8 @@ def _train(output_dir: str,
            config: Element,
            **_):
     train_env = train_env_factory()
+
+    check_env(train_env)
 
     obs = train_env.reset()
     done = False

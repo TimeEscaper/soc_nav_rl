@@ -87,7 +87,8 @@ class PyMiniSimWrap:
     def __init__(self,
                  agents_sampler: AbstractAgentsSampler,
                  sim_config: SimConfig,
-                 render: bool = False):
+                 render: bool = False,
+                 normalize_actions: bool = False):
         self._config_sampler = sim_config
         self._agents_sampler = agents_sampler
         self._render = render
@@ -101,12 +102,21 @@ class PyMiniSimWrap:
 
         self._has_peds = sim_config.ped_model != "none"
 
-        self.action_space = gym.spaces.Box(
-            low=np.array(sim_config.control_lb),
-            high=np.array(sim_config.control_ub),
-            shape=(2,),
-            dtype=np.float
-        )
+        if not normalize_actions:
+            self.action_space = gym.spaces.Box(
+                low=np.array(sim_config.control_lb),
+                high=np.array(sim_config.control_ub),
+                shape=(2,),
+                dtype=np.float32
+            )
+        else:
+            self.action_space = gym.spaces.Box(
+                low=np.array([-1., -1.]),
+                high=np.array([1., 1.]),
+                shape=(2,),
+                dtype=np.float32
+            )
+        self._normalize_actions = normalize_actions
 
     @property
     def goal(self) -> np.ndarray:
@@ -135,7 +145,11 @@ class PyMiniSimWrap:
     def step(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
         assert self._sim is not None, "Reset method must be called before first call of the step method"
         action = np.clip(action,
-                         np.array(self._config.control_lb), np.array(self._config.control_ub))
+                         self.action_space.low, self.action_space.high)
+        if self._normalize_actions:
+            deviation = (np.array(self._config.control_ub) - np.array(self._config.control_lb)) / 2.
+            shift = (np.array(self._config.control_ub) + np.array(self._config.control_lb)) / 2.
+            action = (action * deviation) + shift
 
         hold_time = 0.
         has_collision = False
@@ -230,18 +244,20 @@ class SimpleNavEnv(gym.Env):
                  agents_sampler: AbstractAgentsSampler,
                  reward: AbstractReward,
                  sim_config: SimConfig,
-                 render: bool = False):
+                 render: bool = False,
+                 normalize_actions: bool = False):
         assert sim_config.ped_model == "none", "Pedestrians are not supported for the simple navigation env"
         self._sim_wrap = PyMiniSimWrap(agents_sampler,
                                        sim_config,
-                                       render)
+                                       render,
+                                       normalize_actions)
         self._reward = reward
 
         self.observation_space = gym.spaces.Box(
             low=-np.inf,
             high=np.inf,
             shape=(4,),
-            dtype=np.float
+            dtype=np.float32
         )
         self.action_space = self._sim_wrap.action_space
 
@@ -263,7 +279,8 @@ class SimpleNavEnv(gym.Env):
             reward_context.set("collision", True)
         elif truncated:
             done = True
-            info = {"done_reason": "truncated"}
+            info = {"done_reason": "truncated",
+                    "TimeLimit.truncated": True}  # https://stable-baselines3.readthedocs.io/en/master/guide/rl_tips.html#tips-and-tricks-when-creating-a-custom-environment
             reward_context.set("truncated", True)
         elif success:
             done = True
@@ -294,7 +311,7 @@ class SimpleNavEnv(gym.Env):
         return np.array([np.linalg.norm(goal[:2] - robot_pose[:2]),
                          goal[0] - robot_pose[0],
                          goal[1] - robot_pose[1],
-                         robot_pose[2]])
+                         robot_pose[2]]).astype(np.float32)
 
 
 @nip
@@ -304,17 +321,20 @@ class SimpleNavEnvFactory(AbstractEnvFactory):
                  agents_sampler: AbstractAgentsSampler,
                  reward: AbstractReward,
                  sim_config: SimConfig,
-                 render: bool = False):
+                 render: bool = False,
+                 normalize_actions: bool = False):
         self._agents_sampler = agents_sampler
         self._reward = reward
         self._sim_config = sim_config
         self._render = render
+        self._normalize_actions = normalize_actions
 
     def __call__(self) -> SimpleNavEnv:
         return SimpleNavEnv(self._agents_sampler,
                             self._reward,
                             self._sim_config,
-                            self._render)
+                            self._render,
+                            self._normalize_actions)
 
 
 # class PyMiniSimEnvBase(gym.Env, ABC):
