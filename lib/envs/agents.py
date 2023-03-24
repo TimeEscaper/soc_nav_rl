@@ -76,6 +76,8 @@ class RandomAgentsSampler(AbstractAgentsSampler):
             dists = cdist(positions, positions, "euclidean")
             dists = dists[np.triu_indices(dists.shape[0], 1)]
             sampled = (dists > PEDESTRIAN_RADIUS + ROBOT_RADIUS).all()
+            if sampled:
+                break
         if not sampled:
             raise RuntimeError("Failed to sample positions")
         ped_poses = positions[:-1, :]
@@ -85,6 +87,8 @@ class RandomAgentsSampler(AbstractAgentsSampler):
         for _ in range(self._max_sample_trials):
             goal = np.random.uniform(low, high)
             sampled = np.linalg.norm(robot_pose - goal) >= self._min_robot_goal_distance
+            if sampled:
+                break
         if not sampled:
             raise RuntimeError("Failed to sample goal")
 
@@ -96,3 +100,39 @@ class RandomAgentsSampler(AbstractAgentsSampler):
                             robot_goal=goal,
                             world_size=self._sampling_square,
                             ped_initial_poses=ped_poses)
+
+
+@nip
+class RobotOnlySampler(AbstractAgentsSampler):
+
+    def __init__(self,
+                 sampling_square: Tuple[int, int] = (20, 20),
+                 min_robot_goal_distance: float = 5.,
+                 max_sample_trials: int = 1000):
+        super(RobotOnlySampler, self).__init__(max_peds=0)
+        self._sampling_square = sampling_square
+        self._min_robot_goal_distance = min_robot_goal_distance
+        self._max_sample_trials = max_sample_trials
+
+    def sample(self) -> AgentsSample:
+        low = np.array([-self._sampling_square[0] / 2, -self._sampling_square[1] / 2])
+        high = np.array([self._sampling_square[0] / 2, self._sampling_square[1] / 2])
+
+        robot_pose = np.random.uniform(low, high, (2,))
+
+        sampled = False
+        for _ in range(self._max_sample_trials):
+            goal = np.random.uniform(low, high)
+            sampled = np.linalg.norm(robot_pose - goal) >= self._min_robot_goal_distance
+            if sampled:
+                break
+        if not sampled:
+            raise RuntimeError("Failed to sample goal")
+
+        robot_pose = np.array([robot_pose[0], robot_pose[1], np.random.uniform(-np.pi, np.pi)])
+
+        return AgentsSample(n_peds=0,
+                            robot_initial_pose=robot_pose,
+                            robot_goal=goal,
+                            world_size=self._sampling_square,
+                            ped_initial_poses=None)
