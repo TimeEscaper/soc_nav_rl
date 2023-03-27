@@ -61,6 +61,7 @@ class SimConfig:
     max_steps: int = 300
     sim_dt: float = 0.01
     policy_dt: float = 0.1
+    rt_factor: Optional[float] = None
 
     def sample(self) -> SimConfig:
         return SimConfig(ped_model=get_or_sample_choice(self.ped_model),
@@ -143,7 +144,6 @@ class PyMiniSimWrap:
         return self._sim.current_state
 
     def step(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
-        assert self._sim is not None, "Reset method must be called before first call of the step method"
         action = np.clip(action,
                          self.action_space.low, self.action_space.high)
         if self._normalize_actions:
@@ -216,7 +216,8 @@ class PyMiniSimWrap:
                          robot_model=robot_model,
                          pedestrians_model=ped_model,
                          sensors=[ped_detector],
-                         sim_dt=config.sim_dt)
+                         sim_dt=config.sim_dt,
+                         rt_factor=config.rt_factor)
         if self._render:
             renderer = Renderer(simulation=sim,
                                 resolution=50.,
@@ -284,7 +285,7 @@ class SimpleNavEnv(gym.Env):
             reward_context.set("truncated", True)
         elif success:
             done = True
-            info = {"done_reason": "collision"}
+            info = {"done_reason": "success"}
             reward_context.set("success", True)
         else:
             done = False

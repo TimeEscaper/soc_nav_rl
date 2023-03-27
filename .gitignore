@@ -154,3 +154,6 @@ dmypy.json
 
 # VSCode
 .vscode/
+
+# Project-specific
+experiments/
