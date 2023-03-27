@@ -237,6 +237,9 @@ class PyMiniSimWrap:
         if self._renderer is not None:
             self._renderer.draw(drawing_id, drawing)
 
+    def enable_render(self):
+        self._render = True
+
 
 @nip
 class SimpleNavEnv(gym.Env):
@@ -306,6 +309,9 @@ class SimpleNavEnv(gym.Env):
 
     def render(self, mode="human"):
         pass
+
+    def enable_render(self):
+        self._sim_wrap.enable_render()
 
     @staticmethod
     def _build_observation(robot_pose: np.ndarray, goal: np.ndarray) -> np.ndarray:

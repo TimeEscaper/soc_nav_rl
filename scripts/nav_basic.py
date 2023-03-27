@@ -57,15 +57,42 @@ def _train(output_dir: str,
     )
 
     logger.init()
-    rl_model.learn(int(1e6), callback=eval_callback)
+    rl_model.learn(int(1e9), callback=eval_callback)
 
     train_env.close()
     logger.close()
 
 
+def _eval(config: Element,
+          model_path: Path,
+          train_env_factory: Optional[AbstractEnvFactory] = None,
+          eval_env_factory: Optional[Callable] = None,
+          **_):
+    model = PPO.load(str(model_path))
+    if eval_env_factory is not None:
+        eval_env = eval_env_factory()
+    elif train_env_factory is not None:
+        eval_env = train_env_factory()
+    else:
+        raise ValueError("Train env or eval env must be set")
+    eval_env.enable_render()
+
+    while True:
+        done = False
+        obs = eval_env.reset()
+        while not done:
+            action, _ = model.predict(obs)
+            obs, reward, done, info = eval_env.step(action)
+
+
 def main(config: str, output_dir: Optional[str] = "./experiments", experiment_name: Optional[str] = None):
-    nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name),
-            verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
+    config = Path(config)
+    if config.is_file():
+        nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name),
+                verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
+    elif config.is_dir():
+        nip.run(config / "config.nip", partial(_eval, model_path=config / "best_model.zip"),
+                verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
 
 
 if __name__ == '__main__':
