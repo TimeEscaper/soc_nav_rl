@@ -73,7 +73,8 @@ class SimConfig:
                          goal_reach_threshold=self.goal_reach_threshold,
                          max_steps=self.max_steps,
                          sim_dt=self.sim_dt,
-                         policy_dt=self.policy_dt)
+                         policy_dt=self.policy_dt,
+                         rt_factor=self.rt_factor)
 
 
 class AbstractEnvFactory(ABC):

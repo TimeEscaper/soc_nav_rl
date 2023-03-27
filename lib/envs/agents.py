@@ -136,3 +136,22 @@ class RobotOnlySampler(AbstractAgentsSampler):
                             robot_goal=goal,
                             world_size=self._sampling_square,
                             ped_initial_poses=None)
+
+
+@nip
+class FixedRobotOnlySampler(AbstractAgentsSampler):
+
+    def __init__(self,
+                 robot_pose: Tuple[float, float, float],
+                 goal_position: Tuple[float, float]):
+        assert len(robot_pose) == 3 and len(goal_position) == 2
+        super(FixedRobotOnlySampler, self).__init__(max_peds=0)
+        self._robot_pose = np.array(robot_pose)
+        self._goal_position = np.array(goal_position)
+
+    def sample(self) -> AgentsSample:
+        return AgentsSample(n_peds=0,
+                            robot_initial_pose=self._robot_pose.copy(),
+                            robot_goal=self._goal_position.copy(),
+                            world_size=(20, 20),  # TODO: Remove this parameter in sampling system
+                            ped_initial_poses=None)
