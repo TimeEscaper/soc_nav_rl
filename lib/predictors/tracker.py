@@ -147,9 +147,10 @@ class PedestrianTracker:
         # Pedestrians that were tracked and present observation - just continue tracking them
         updated_peds = tracked_peds.intersection(observed_peds)
         for k in updated_peds:
-            self._tracks[k].update_states(observation[k])
+            self._tracks[k].update_states(np.array(observation[k]))
 
-        # Pedestrians that are observed, but not present in current tracks - they are "returned ghosts" or new pedestrians
+        # Pedestrians that are observed, but not present in current tracks - they are "returned ghosts"
+        # or new pedestrians
         new_peds = observed_peds.difference(tracked_peds)
         for k in new_peds:
             if k in self._ghosts:
@@ -157,14 +158,14 @@ class PedestrianTracker:
                 pedestrian = _PedestrianTrack(self._track_history_length,
                                               self._predictor.horizon,
                                               self._ghosts[k].history)
-                pedestrian.update_states(observation[k])
+                pedestrian.update_states(np.array(observation[k]))
                 self._tracks[k] = pedestrian
                 self._ghosts.pop(k)
             else:
                 # Pedestrian was simply not observed
                 self._tracks[k] = _PedestrianTrack(self._track_history_length,
                                                    self._predictor.horizon,
-                                                   observation[k])
+                                                   np.array(observation[k]))
 
         # Pedestrians that were tracked but not observed now - they become "ghosts"
         lost_peds = tracked_peds.difference(observed_peds)

@@ -95,7 +95,7 @@ class RandomAgentsSampler(AbstractAgentsSampler):
         ped_poses = np.concatenate((ped_poses, np.random.uniform(-np.pi, np.pi, (n_peds, 1))), axis=-1)
         robot_pose = np.concatenate((robot_pose, np.random.uniform(-np.pi, np.pi, (1,))), axis=-1)
 
-        return AgentsSample(n_peds=self._n_peds,
+        return AgentsSample(n_peds=n_peds,
                             robot_initial_pose=robot_pose,
                             robot_goal=goal,
                             world_size=self._sampling_square,

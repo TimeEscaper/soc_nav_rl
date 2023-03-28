@@ -1,0 +1,42 @@
+n_train_envs: 12
+env_max_steps: &env_max_steps 300
+eval_period: `20 * env_max_steps`
+eval_n_episodes: 10
+
+
+sim: &sim !SimConfig
+  ped_model: "hsfm"
+  robot_visible: false
+  control_lb: (0., 0.)
+  control_ub: (2., 2.826)  # 0.9 * pi
+  goal_reach_threshold: 0.1
+  max_steps: *env_max_steps
+
+
+agents:  &agents !RandomAgentsSampler
+  n_peds: (4, 8)
+  sampling_square: (7, 7)
+  min_robot_goal_distance: 5.0
+
+
+reward: &reward !BranchReward
+  success_reward: 10.
+  fail_reward: -20.
+  step_reward: !PotentialGoalReward
+    coefficient: 2.
+  truncated_is_fail: false
+
+
+train_env_factory: !SocialNavGraphEnvFactory
+  agents_sampler: *agents
+  tracker_factory: !CovarianceNetTrackerFactory
+    horizon: 5
+    max_ghost_tracking_time: 3
+  reward: *reward
+  sim_config: *sim
+  normalize_actions: true
+  render: false
+
+
+logger: !NeptuneLogger
+  neptune_project: "timeescaper/soc-nav-rl"

@@ -76,6 +76,13 @@ class SimConfig:
                          policy_dt=self.policy_dt,
                          rt_factor=self.rt_factor)
 
+    def is_deterministic(self) -> bool:
+        randomized = isinstance(self.ped_model, tuple) and \
+                     isinstance(self.robot_visible, str) and \
+                     isinstance(self.detector_range, tuple) and \
+                     isinstance(self.detector_fov, tuple)
+        return not randomized
+
 
 class AbstractEnvFactory(ABC):
 
@@ -238,6 +245,10 @@ class PyMiniSimWrap:
         if self._renderer is not None:
             self._renderer.draw(drawing_id, drawing)
 
+    def clear_drawing(self, drawing_id: str):
+        if self._renderer is not None:
+            self._renderer.clear_drawings([drawing_id])
+
     def enable_render(self):
         self._render = True
 
@@ -345,258 +356,169 @@ class SimpleNavEnvFactory(AbstractEnvFactory):
                             self._normalize_actions)
 
 
-# class PyMiniSimEnvBase(gym.Env, ABC):
-#
-#     def __init__(self,
-#                  agents_sampler: AbstractAgentsSampler,
-#                  reward: AbstractReward,
-#                  sim_config: SimConfig,
-#                  render: bool = False):
-#         self._config_sampler = sim_config
-#         self._agents_sampler = agents_sampler
-#         self._reward = reward
-#         self._render = render
-#
-#         self._step_cnt = 0
-#
-#         self._sim: Simulation = None
-#         self._renderer: Renderer = None
-#         self._robot_goal: np.ndarray = None
-#         self._config: SimConfig = None
-#
-#         self._no_peds = sim_config.ped_model is None
-#
-#         self.action_space = gym.spaces.Box(
-#             low=sim_config.control_lb,
-#             high=sim_config.control_ub,
-#             shape=(2,),
-#             dtype=np.float
-#         )
-#
-#     def step(self, action: np.ndarray):
-#         assert self._sim is not None, "Reset method must be called before first call of the step method"
-#         action = np.clip(action, self._config.control_lb, self._config.control_ub)
-#         sim = self._sim
-#
-#         previous_robot_pose = sim.current_state.world.robot.pose
-#
-#         hold_time = 0.
-#         has_collision = False
-#         while hold_time < self._config.policy_dt:
-#             sim.step(action)
-#             hold_time += self._config.sim_dt
-#             if self._renderer is not None:
-#                 self._renderer.render()
-#             collisions = sim.current_state.world.robot_to_pedestrians_collisions
-#             has_collision = collisions is not None and len(collisions) > 0
-#             if has_collision:
-#                 break
-#         self._step_cnt += 1
-#
-#         reward_context = RewardContext()
-#         reward_context.set("goal", self._robot_goal)
-#         reward_context.set("robot_pose", sim.current_state.world.robot.pose)
-#         reward_context.set("previous_robot_pose", previous_robot_pose)
-#         if has_collision:
-#             done = True
-#             info = {"done_reason": "collision"}
-#             reward_context.set("collision", True)
-#         elif self._step_cnt > self._config.max_steps:
-#             done = True
-#             info = {"done_reason": "truncated"}
-#             reward_context.set("truncated", True)
-#         else:
-#             done = np.linalg.norm(
-#                 sim.current_state.world.robot.pose[:2] - self._robot_goal) \
-#                    - ROBOT_RADIUS < self._config.goal_reach_threshold
-#             info = {}
-#             if done:
-#                 info["done_reason"] = "success"
-#                 reward_context.set("success", True)
-#
-#         observation = self._build_observation(reward_context)
-#         reward = self._reward(reward_context)
-#
-#         return observation, reward, done, info
-#
-#     def reset(self):
-#         config = self._config_sampler.sample()
-#         self._config = config
-#
-#         agents_sample = self._agents_sampler.sample()
-#         self._robot_goal = agents_sample.robot_goal
-#
-#         robot_model = UnicycleRobotModel(initial_pose=agents_sample.robot_initial_pose,
-#                                          initial_control=np.array([0.0, np.deg2rad(25.0)]))
-#
-#         if not self._no_peds:
-#             if agents_sample.ped_goals is None:
-#                 waypoint_tracker = RandomWaypointTracker(world_size=agents_sample.world_size)
-#             else:
-#                 waypoint_tracker = FixedWaypointTracker(waypoints=agents_sample.ped_goals[np.newaxis, :, :])
-#
-#             if config.ped_model == "hsfm":
-#                 ped_model = HeadedSocialForceModelPolicy(waypoint_tracker=waypoint_tracker,
-#                                                          n_pedestrians=agents_sample.n_peds,
-#                                                          initial_poses=agents_sample.ped_initial_poses,
-#                                                          robot_visible=config.robot_visible)
-#             elif config.ped_model == "orca":
-#                 ped_model = OptimalReciprocalCollisionAvoidance(dt=config.sim_dt,
-#                                                                 waypoint_tracker=waypoint_tracker,
-#                                                                 n_pedestrians=agents_sample.n_peds,
-#                                                                 initial_poses=agents_sample.ped_initial_poses,
-#                                                                 robot_visible=config.robot_visible)
-#             else:
-#                 raise ValueError()
-#         else:
-#             ped_model = None
-#
-#         ped_detector = PedestrianDetector(
-#             config=PedestrianDetectorConfig(max_dist=config.detector_range,
-#                                             fov=config.detector_fov,
-#                                             return_type=PedestrianDetectorConfig.RETURN_ABSOLUTE))
-#
-#         sim = Simulation(world_map=EmptyWorld(),
-#                          robot_model=robot_model,
-#                          pedestrians_model=ped_model,
-#                          sensors=[ped_detector],
-#                          sim_dt=config.sim_dt)
-#         if self._render:
-#             renderer = Renderer(simulation=sim,
-#                                 resolution=30.,
-#                                 screen_size=(1500, 1500))
-#         else:
-#             renderer = None
-#
-#         self._sim = sim
-#         self._renderer = renderer
-#
-#         self._step_cnt = 0
-#
-#         self._reset_internal()
-#         observation = self._build_observation(RewardContext())
-#
-#         return observation
-#
-#     def render(self, mode="human"):
-#         pass
-#
-#     @abstractmethod
-#     def _build_observation(self, reward_context: RewardContext) -> Any:
-#         raise NotImplementedError()
-#
-#     @abstractmethod
-#     def _reset_internal(self):
-#         raise NotImplementedError()
-#
-#
-# @nip
-# class PredictionControlEnv(PyMiniSimEnvBase):
-#
-#     def __init__(self,
-#                  agents_sampler: AbstractAgentsSampler,
-#                  reward: AbstractReward,
-#                  sim_config: SimConfig,
-#                  ped_tracker: PedestrianTracker,
-#                  render: bool = False):
-#         super().__init__(agents_sampler=agents_sampler,
-#                          reward=reward,
-#                          sim_config=sim_config,
-#                          render=render)
-#
-#         self._ped_tracker = ped_tracker
-#         self._previous_poses = ped_tracker.get_current_poses()
-#         self._previous_prediction = ped_tracker.get_predictions()
-#         self._current_poses = ped_tracker.get_current_poses()
-#         self._current_prediction = ped_tracker.get_predictions()
-#         self._max_peds = agents_sampler.max_peds
-#
-#         self.observation_space = gym.spaces.Dict({
-#             "peds_traj": gym.spaces.Box(
-#                 low=-np.inf,
-#                 high=np.inf,
-#                 shape=(self._max_peds, ped_tracker.horizon + 1, 2),
-#                 dtype=np.float
-#             ),
-#             "peds_visibility": gym.spaces.Box(
-#                 low=False,
-#                 high=True,
-#                 shape=(self._max_peds,),
-#                 dtype=np.bool
-#             ),
-#             "robot_state": gym.spaces.Box(
-#                 low=-np.inf,
-#                 high=np.inf,
-#                 shape=(4,),
-#                 dtype=np.float
-#             )
-#         })
-#
-#     def _build_observation(self, reward_context: RewardContext) -> Any:
-#         # TODO: Use output of the detector instead of GT positions
-#         detected_peds = self._sim.current_state.sensors["pedestrian_detector"].reading.pedestrians.keys()
-#         tracker_obs = {k: np.concatenate((self._sim.current_state.world.pedestrians.poses[k],
-#                                           self._sim.current_state.world.pedestrians.velocities[k])) for k in
-#                        detected_peds}
-#         self._ped_tracker.update(tracker_obs)
-#
-#         self._previous_prediction = self._current_prediction
-#         self._previous_poses = self._current_poses
-#         self._current_poses = self._ped_tracker.get_current_poses()
-#         self._current_prediction = self._ped_tracker.get_predictions()
-#
-#         reward_context.set("previous_poses", self._previous_poses)
-#         reward_context.set("previous_prediction", self._previous_prediction)
-#         reward_context.set("current_poses", self._current_poses)
-#         reward_context.set("current_prediction", self._current_prediction)
-#
-#         robot_pose = self._sim.current_state.world.robot.pose
-#
-#         obs_ped_traj = np.ones((self._max_peds, self._ped_tracker.horizon + 1, 2)) * 100.
-#         obs_peds_ids = self._current_poses.keys()
-#         obs_peds_vis = np.zeros(self._max_peds, dtype=np.bool)
-#         for k in obs_peds_ids:
-#             obs_ped_traj[k, 0, :] = self._current_poses[k] - robot_pose[:2]
-#             obs_ped_traj[k, 1:, :] = self._current_prediction[k][0] - robot_pose[:2]
-#             obs_peds_vis[k] = True
-#
-#         robot_state = np.array([np.linalg.norm(self._robot_goal - robot_pose[:2]),
-#                                 self._robot_goal[0] - robot_pose[0],
-#                                 self._robot_goal[1] - robot_pose[1],
-#                                 robot_pose[2]])
-#
-#         return {
-#             "peds_traj": obs_ped_traj,
-#             "peds_visibility": obs_peds_vis,
-#             "robot_state": robot_state
-#         }
-#
-#     def _reset_internal(self):
-#         self._ped_tracker.reset()
-#         self._previous_poses = self._ped_tracker.get_current_poses()
-#         self._previous_prediction = self._ped_tracker.get_predictions()
-#         self._current_poses = self._ped_tracker.get_current_poses()
-#         self._current_prediction = self._ped_tracker.get_predictions()
-#
-#
-# @nip
-# class PredictionControlEnvFactroy:
-#
-#     def __init__(self,
-#                  agents_sampler: AbstractAgentsSampler,
-#                  reward: AbstractReward,
-#                  sim_config: SimConfig,
-#                  ped_tracker_factory: Callable,
-#                  render: bool = False):
-#         self._agents_sampler = agents_sampler
-#         self._reward = reward
-#         self._sim_config = sim_config
-#         self._ped_tracker_factory = ped_tracker_factory
-#         self._render = render
-#
-#     def __call__(self) -> PredictionControlEnv:
-#         return PredictionControlEnv(self._agents_sampler,
-#                                     self._reward,
-#                                     self._sim_config,
-#                                     self._ped_tracker_factory(),
-#                                     self._render)
+@nip
+class SocialNavGraphEnv(gym.Env):
+
+    def __init__(self,
+                 agents_sampler: AbstractAgentsSampler,
+                 ped_tracker: PedestrianTracker,
+                 reward: AbstractReward,
+                 sim_config: SimConfig,
+                 render: bool = False,
+                 normalize_actions: bool = False):
+        self._sim_wrap = PyMiniSimWrap(agents_sampler,
+                                       sim_config,
+                                       render,
+                                       normalize_actions)
+        self._reward = reward
+        self._ped_tracker = ped_tracker
+
+        self._max_peds = agents_sampler.max_peds
+
+        self._previous_ped_predictions = ped_tracker.get_predictions()
+
+        self.observation_space = gym.spaces.Dict({
+            "peds_traj": gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(self._max_peds, ped_tracker.horizon + 1, 2),  # Current state + predictions = 1 + horizon
+                dtype=np.float
+            ),
+            "peds_visibility": gym.spaces.Box(
+                low=False,
+                high=True,
+                shape=(self._max_peds,),
+                dtype=np.bool
+            ),
+            "robot_state": gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(4,),
+                dtype=np.float
+            )
+        })
+
+        self.action_space = self._sim_wrap.action_space
+
+    def step(self, action: np.ndarray):
+        previous_robot_pose = self._sim_wrap.sim_state.world.robot.pose
+        previous_predictions = self._ped_tracker.get_predictions()
+        goal = self._sim_wrap.goal
+
+        collision, truncated, success = self._sim_wrap.step(action)
+        self._ped_tracker.update(self._get_detections())
+        robot_pose = self._sim_wrap.sim_state.world.robot.pose
+
+        if self._sim_wrap.render_enabled:
+            current_predictions = self._ped_tracker.get_predictions()
+            for k, pred in current_predictions.items():
+                self._sim_wrap.draw(f"pred_{k}", CircleDrawing(pred[0], 0.05, (0, 0, 255)))
+            for k in set(previous_predictions.keys()).difference(set(current_predictions.keys())):
+                self._sim_wrap.clear_drawing(f"pred_{k}")
+
+        reward_context = RewardContext()
+        reward_context.set("goal", goal)
+        reward_context.set("robot_pose", robot_pose)
+        reward_context.set("previous_robot_pose", previous_robot_pose)
+        reward_context.set("previous_ped_predictions", previous_predictions)
+
+        if collision:
+            done = True
+            info = {"done_reason": "collision"}
+            reward_context.set("collision", True)
+        elif truncated:
+            done = True
+            info = {"done_reason": "truncated",
+                    "TimeLimit.truncated": True}  # https://stable-baselines3.readthedocs.io/en/master/guide/rl_tips.html#tips-and-tricks-when-creating-a-custom-environment
+            reward_context.set("truncated", True)
+        elif success:
+            done = True
+            info = {"done_reason": "success"}
+            reward_context.set("success", True)
+        else:
+            done = False
+            info = {}
+
+        reward = self._reward(reward_context)
+
+        observation = self._build_obs()
+
+        return observation, reward, done, info
+
+    def reset(self):
+        self._sim_wrap.reset()
+        self._ped_tracker.reset()
+        self._ped_tracker.update(self._get_detections())
+        observation = self._build_obs()
+        return observation
+
+    def render(self, mode="human"):
+        pass
+
+    def enable_render(self):
+        self._sim_wrap.enable_render()
+
+    def _get_detections(self) -> Dict[int, np.ndarray]:
+        detections = {k: np.array([v[0], v[1], 0., 0.])
+                      for k, v in self._sim_wrap.sim_state.sensors["pedestrian_detector"].reading.pedestrians.items()}
+        return detections
+
+    @staticmethod
+    def _build_robot_obs(robot_pose: np.ndarray, goal: np.ndarray) -> np.ndarray:
+        return np.array([np.linalg.norm(goal[:2] - robot_pose[:2]),
+                         goal[0] - robot_pose[0],
+                         goal[1] - robot_pose[1],
+                         robot_pose[2]]).astype(np.float32)
+
+    def _build_peds_obs(self, robot_pose: np.ndarray,
+                        current_poses: Dict[int, np.ndarray], predictions: Dict[int, np.ndarray]) -> \
+            Tuple[np.ndarray, np.ndarray]:
+        obs_ped_traj = np.ones((self._max_peds, self._ped_tracker.horizon + 1, 2)) * 100.
+        obs_peds_ids = current_poses.keys()
+        obs_peds_vis = np.zeros(self._max_peds, dtype=np.bool)
+        for k in obs_peds_ids:
+            obs_ped_traj[k, 0, :] = current_poses[k] - robot_pose[:2]
+            obs_ped_traj[k, 1:, :] = predictions[k][0] - robot_pose[:2]
+            obs_peds_vis[k] = True
+        return obs_ped_traj, obs_peds_vis
+
+    def _build_obs(self) -> Dict[str, np.ndarray]:
+        goal = self._sim_wrap.goal
+        robot_pose = self._sim_wrap.sim_state.world.robot.pose
+        current_poses = self._ped_tracker.get_current_poses()
+        predictions = {k: v[0] for k, v in self._ped_tracker.get_predictions().items()}
+
+        robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, goal)
+        obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_obs, current_poses, predictions)
+
+        return {
+            "peds_traj": obs_ped_traj,
+            "peds_visibility": obs_peds_vis,
+            "robot_state": robot_obs
+        }
+
+
+@nip
+class SocialNavGraphEnvFactory(AbstractEnvFactory):
+
+    def __init__(self,
+                 agents_sampler: AbstractAgentsSampler,
+                 tracker_factory: Callable,
+                 reward: AbstractReward,
+                 sim_config: SimConfig,
+                 render: bool = False,
+                 normalize_actions: bool = False):
+        self._agents_sampler = agents_sampler
+        self._tracker_factory = tracker_factory
+        self._reward = reward
+        self._sim_config = sim_config
+        self._render = render
+        self._normalize_actions = normalize_actions
+
+    def __call__(self) -> SocialNavGraphEnv:
+        return SocialNavGraphEnv(self._agents_sampler,
+                                 self._tracker_factory(),
+                                 self._reward,
+                                 self._sim_config,
+                                 self._render,
+                                 self._normalize_actions)

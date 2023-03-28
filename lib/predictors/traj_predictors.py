@@ -54,7 +54,7 @@ class CovarianceNetPredictor(AbstractTrajectoryPredictor):
         _ = self._model.to(device)
         self._model = self._model.eval()
         self._device = device
-        self._horizon = horizon + 1
+        self._horizon = horizon
 
     def predict(self, joint_history: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         # joint_history: (history, n_neighbours, state_dim)
