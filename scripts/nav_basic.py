@@ -1,4 +1,5 @@
 import fire
+import gym
 import nip
 
 from datetime import datetime
@@ -14,6 +15,7 @@ from stable_baselines3 import PPO
 from lib.envs import AbstractEnvFactory
 from lib.envs.wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
+from lib.rl import BasicGraphExtractor
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
@@ -30,6 +32,8 @@ def _train(output_dir: str,
            rl_model_params: Optional[Dict[str, Any]] = None,
            eval_env_factory: Optional[Callable] = None,
            logger: AbstractLogger = ConsoleLogger(),
+           feature_extractor: Optional[str] = None,
+           feature_extractor_kwargs: Optional[Dict[str, Any]] = None,
            **_):
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
@@ -40,7 +44,8 @@ def _train(output_dir: str,
                                       logger=logger))
 
     output_dir.mkdir(parents=True)
-    nip.dump(output_dir / "config.nip", config)
+    config_path = output_dir / "config.yaml"
+    nip.dump(config_path, config)
 
     eval_callback = EvalCallback(eval_env=eval_env,
                                  n_eval_episodes=eval_n_episodes,
@@ -48,15 +53,26 @@ def _train(output_dir: str,
                                  best_model_save_path=str(output_dir),
                                  deterministic=True,
                                  verbose=1)
+
     rl_model_params = rl_model_params or {}
+    if feature_extractor is not None:
+        if feature_extractor == BasicGraphExtractor.NAME:
+            rl_model_params["policy_kwargs"] = {"features_extractor_class": BasicGraphExtractor}
+        else:
+            print(f"Warning: unknown feature extractor {feature_extractor}")
+            feature_extractor = None
+    if feature_extractor is not None and feature_extractor_kwargs is not None:
+        rl_model_params["policy_kwargs"]["features_extractor_kwargs"] = feature_extractor_kwargs
+    policy = "MultiInputPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpPolicy"
     rl_model = PPO(
-        "MlpPolicy",
+        policy,
         train_env,
         verbose=1,
         **rl_model_params
     )
 
     logger.init()
+    logger.upload_config(config_path)
     rl_model.learn(int(1e9), callback=eval_callback)
 
     train_env.close()
@@ -91,7 +107,7 @@ def main(config: str, output_dir: Optional[str] = "./experiments", experiment_na
         nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name),
                 verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
     elif config.is_dir():
-        nip.run(config / "config.nip", partial(_eval, model_path=config / "best_model.zip"),
+        nip.run(config / "config.yaml", partial(_eval, model_path=config / "best_model.zip"),
                 verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
 
 

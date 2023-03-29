@@ -1,7 +1,8 @@
 import neptune
 
 from abc import ABC, abstractmethod
-from typing import Optional, Any
+from typing import Optional, Any, Union
+from pathlib import Path
 from nip import nip
 
 
@@ -13,6 +14,10 @@ class AbstractLogger(ABC):
 
     @abstractmethod
     def log(self, key: str, value: Any, desc: Optional[str] = None):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def upload_config(self, config_path: Union[str, Path]):
         raise NotImplementedError()
 
     @abstractmethod
@@ -33,6 +38,9 @@ class ConsoleLogger(AbstractLogger):
         print_str = f"{print_str}:    {value}"
         print(print_str)
 
+    def upload_config(self, config_path: Union[str, Path]):
+        pass
+
     def close(self):
         pass
 
@@ -51,6 +59,9 @@ class NeptuneLogger(AbstractLogger):
 
     def log(self, key: str, value: Any, desc: Optional[str] = None):
         self._run[key].append(value)
+
+    def upload_config(self, config_path: Union[str, Path]):
+        self._run["config"].upload(str(config_path))
 
     def close(self):
         self._run.stop()

@@ -480,6 +480,13 @@ class SocialNavGraphEnv(gym.Env):
             obs_ped_traj[k, 0, :] = current_poses[k] - robot_pose[:2]
             obs_ped_traj[k, 1:, :] = predictions[k][0] - robot_pose[:2]
             obs_peds_vis[k] = True
+
+        # TODO: Should we make soring optional?
+        distances = np.linalg.norm(obs_ped_traj[:, 0, :], axis=1)
+        sorted_indices = np.argsort(distances)
+        obs_ped_traj = obs_ped_traj[sorted_indices]
+        obs_peds_vis = obs_peds_vis[sorted_indices]
+
         return obs_ped_traj, obs_peds_vis
 
     def _build_obs(self) -> Dict[str, np.ndarray]:
