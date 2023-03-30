@@ -505,7 +505,7 @@ class SocialNavGraphEnv(gym.Env):
         predictions = {k: v[0] for k, v in self._ped_tracker.get_predictions().items()}
 
         robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, goal)
-        obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_obs, current_poses, predictions)
+        obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_pose, current_poses, predictions)
 
         return {
             "peds_traj": obs_ped_traj,
