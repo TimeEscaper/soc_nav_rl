@@ -24,6 +24,7 @@ reward: &reward !BranchReward
     coefficient: 2.
   truncated_is_fail: false
 
+rl_model: !&PPO
 
 train_env_factory: !SimpleNavEnvFactory
   agents_sampler: *agents
