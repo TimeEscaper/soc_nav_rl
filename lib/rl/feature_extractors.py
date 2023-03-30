@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 import gym
@@ -13,8 +14,10 @@ class BasicGraphExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: gym.spaces.Dict,
                  features_dim: int = 256,
                  embedding_dim: int = 512,
-                 n_ped_attention_heads: int = 8):
+                 n_ped_attention_heads: int = 8,
+                 ped_only_attention: bool = False):
         super(BasicGraphExtractor, self).__init__(observation_space, features_dim)
+        self._ped_only_attention = ped_only_attention
 
         n_max_peds, seq_len, state_dim = observation_space["peds_traj"].shape
         robot_state_dim = observation_space["robot_state"].shape[0]
@@ -58,11 +61,14 @@ class BasicGraphExtractor(BaseFeaturesExtractor):
                 peds_visibility[i] = 1.
         key_padding_mask = torch.logical_not(peds_visibility > 0)
 
-        peds_traj = self._process_peds_traj(peds_traj, key_padding_mask)  # (n_envs, n_max_peds, emb_dim)
-        robot_state = self._process_robot_state(robot_state, peds_traj,
+        feature = self._process_peds_traj(peds_traj, key_padding_mask)  # (n_envs, n_max_peds, emb_dim)
+        if not self._ped_only_attention:
+            feature = self._process_robot_state(robot_state, feature,
                                                 key_padding_mask)  # (n_envs, emb_dim)
+        else:
+            feature = torch.mean(feature, dim=1)  # (n_envs, emb_dim)
 
-        feature = self._final_feature_embedding.forward(robot_state)
+        feature = self._final_feature_embedding.forward(feature)
 
         return feature
 

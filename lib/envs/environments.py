@@ -289,18 +289,22 @@ class SimpleNavEnv(gym.Env):
         reward_context.set("robot_pose", robot_pose)
         reward_context.set("previous_robot_pose", previous_robot_pose)
 
+        # https://stable-baselines3.readthedocs.io/en/master/common/logger.html#eval
         if collision:
             done = True
-            info = {"done_reason": "collision"}
+            info = {"done_reason": "collision",
+                    "is_success": False}
             reward_context.set("collision", True)
         elif truncated:
             done = True
             info = {"done_reason": "truncated",
+                    "is_success": False,
                     "TimeLimit.truncated": True}  # https://stable-baselines3.readthedocs.io/en/master/guide/rl_tips.html#tips-and-tricks-when-creating-a-custom-environment
             reward_context.set("truncated", True)
         elif success:
             done = True
-            info = {"done_reason": "success"}
+            info = {"done_reason": "success",
+                    "is_success": True}
             reward_context.set("success", True)
         else:
             done = False
@@ -422,18 +426,22 @@ class SocialNavGraphEnv(gym.Env):
         reward_context.set("previous_robot_pose", previous_robot_pose)
         reward_context.set("previous_ped_predictions", previous_predictions)
 
+        # https://stable-baselines3.readthedocs.io/en/master/common/logger.html#eval
         if collision:
             done = True
-            info = {"done_reason": "collision"}
+            info = {"done_reason": "collision",
+                    "is_success": False}
             reward_context.set("collision", True)
         elif truncated:
             done = True
             info = {"done_reason": "truncated",
+                    "is_success": False,
                     "TimeLimit.truncated": True}  # https://stable-baselines3.readthedocs.io/en/master/guide/rl_tips.html#tips-and-tricks-when-creating-a-custom-environment
             reward_context.set("truncated", True)
         elif success:
             done = True
-            info = {"done_reason": "success"}
+            info = {"done_reason": "success",
+                    "is_success": True}
             reward_context.set("success", True)
         else:
             done = False
