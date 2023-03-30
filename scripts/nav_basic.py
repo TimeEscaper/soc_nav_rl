@@ -3,7 +3,7 @@ import gym
 import nip
 
 from datetime import datetime
-from typing import Optional, Callable, Dict, Any
+from typing import Optional, Callable, Dict, Any, ClassVar
 from functools import partial
 from pathlib import Path
 from nip.elements import Element
@@ -15,7 +15,6 @@ from stable_baselines3 import PPO
 from lib.envs import AbstractEnvFactory
 from lib.envs.wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
-from lib.rl import BasicGraphExtractor
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
@@ -32,7 +31,7 @@ def _train(output_dir: str,
            rl_model_params: Optional[Dict[str, Any]] = None,
            eval_env_factory: Optional[Callable] = None,
            logger: AbstractLogger = ConsoleLogger(),
-           feature_extractor: Optional[str] = None,
+           feature_extractor: Optional = None,
            feature_extractor_kwargs: Optional[Dict[str, Any]] = None,
            **_):
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
@@ -56,13 +55,9 @@ def _train(output_dir: str,
 
     rl_model_params = rl_model_params or {}
     if feature_extractor is not None:
-        if feature_extractor == BasicGraphExtractor.NAME:
-            rl_model_params["policy_kwargs"] = {"features_extractor_class": BasicGraphExtractor}
-        else:
-            print(f"Warning: unknown feature extractor {feature_extractor}")
-            feature_extractor = None
-    if feature_extractor is not None and feature_extractor_kwargs is not None:
-        rl_model_params["policy_kwargs"]["features_extractor_kwargs"] = feature_extractor_kwargs
+        rl_model_params["policy_kwargs"] = {"features_extractor_class": feature_extractor}
+        if feature_extractor_kwargs is not None:
+            rl_model_params["policy_kwargs"]["features_extractor_kwargs"] = feature_extractor_kwargs
     policy = "MultiInputPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpPolicy"
     rl_model = PPO(
         policy,

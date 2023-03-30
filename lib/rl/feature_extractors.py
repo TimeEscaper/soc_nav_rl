@@ -3,8 +3,10 @@ import torch.nn as nn
 import gym
 
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+from nip import nip
 
 
+@nip
 class BasicGraphExtractor(BaseFeaturesExtractor):
     NAME = "basic_graph_extractor"
 

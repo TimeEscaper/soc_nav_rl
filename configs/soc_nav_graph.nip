@@ -1,4 +1,4 @@
-n_train_envs: 12
+n_train_envs: 16
 env_max_steps: &env_max_steps 200
 eval_period: `40 * env_max_steps`
 eval_n_episodes: 10
@@ -27,7 +27,7 @@ reward: &reward !BranchReward
   truncated_is_fail: false
 
 
-feature_extractor: "basic_graph_extractor"
+feature_extractor: !&BasicGraphExtractor
 
 
 train_env_factory: !SocialNavGraphEnvFactory
@@ -35,6 +35,7 @@ train_env_factory: !SocialNavGraphEnvFactory
   tracker_factory: !CovarianceNetTrackerFactory
     horizon: 5
     max_ghost_tracking_time: 3
+    device: "cuda"
   reward: *reward
   sim_config: *sim
   normalize_actions: true
