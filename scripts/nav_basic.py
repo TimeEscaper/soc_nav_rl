@@ -3,14 +3,13 @@ import gym
 import nip
 
 from datetime import datetime
-from typing import Optional, Callable, Dict, Any, ClassVar
+from typing import Optional, Callable, Dict, Any
 from functools import partial
 from pathlib import Path
 from nip.elements import Element
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import Monitor
 from stable_baselines3.common.callbacks import EvalCallback
-from stable_baselines3 import PPO
 
 from lib.envs import AbstractEnvFactory
 from lib.envs.wrappers import EvalEnvWrapper
@@ -27,6 +26,7 @@ def _train(output_dir: str,
            n_train_envs: int,
            eval_period: int,
            eval_n_episodes: int,
+           rl_model: Any,
            config: Element,
            rl_model_params: Optional[Dict[str, Any]] = None,
            eval_env_factory: Optional[Callable] = None,
@@ -37,7 +37,8 @@ def _train(output_dir: str,
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
 
-    train_env = _make_subproc_env(train_env_factory, n_proc=n_train_envs)
+    # train_env = _make_subproc_env(train_env_factory, n_proc=n_train_envs)
+    train_env = train_env_factory()
     eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else train_env_factory(),
                                       n_eval_episodes=eval_n_episodes,
                                       logger=logger))
@@ -59,14 +60,15 @@ def _train(output_dir: str,
         if feature_extractor_kwargs is not None:
             rl_model_params["policy_kwargs"]["features_extractor_kwargs"] = feature_extractor_kwargs
     policy = "MultiInputPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpPolicy"
-    rl_model = PPO(
-        policy,
-        train_env,
+    rl_model = rl_model(
+        policy=policy,
+        env=train_env,
         verbose=1,
         **rl_model_params
     )
 
     logger.init()
+    logger.log("experiment_id", str(output_dir.name))
     logger.upload_config(config_path)
     rl_model.learn(int(1e9), callback=eval_callback)
 
@@ -75,11 +77,12 @@ def _train(output_dir: str,
 
 
 def _eval(config: Element,
+          model: Any,
           model_path: Path,
           train_env_factory: Optional[AbstractEnvFactory] = None,
           eval_env_factory: Optional[Callable] = None,
           **_):
-    model = PPO.load(str(model_path))
+    model = model.load(str(model_path))
     if eval_env_factory is not None:
         eval_env = eval_env_factory()
     elif train_env_factory is not None:

@@ -27,9 +27,6 @@ reward: &reward !BranchReward
   truncated_is_fail: false
 
 
-feature_extractor: !&BasicGraphExtractor
-
-
 train_env_factory: !SocialNavGraphEnvFactory
   agents_sampler: *agents
   tracker_factory: !CovarianceNetTrackerFactory
@@ -40,6 +37,16 @@ train_env_factory: !SocialNavGraphEnvFactory
   sim_config: *sim
   normalize_actions: true
   render: false
+
+
+feature_extractor: !&BasicGraphExtractor
+
+rl_model: !&PPO
+rl_model_params:
+  learning_rate: 4e-5
+  n_steps: 30
+  n_epochs: 10
+  gamma: 0.99
 
 
 logger: !NeptuneLogger
