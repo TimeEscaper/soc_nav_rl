@@ -40,6 +40,9 @@ train_env_factory: !SocialNavGraphEnvFactory
 
 
 feature_extractor: !&BasicGraphExtractor
+feature_extractor_kwargs:
+  ped_only_attention: false
+  embedding_dim: 512
 
 rl_model: !&PPO
 rl_model_params:

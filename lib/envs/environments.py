@@ -109,7 +109,7 @@ class PyMiniSimWrap:
         self._robot_goal: np.ndarray = None
         self._config: SimConfig = None
 
-        self._has_peds = sim_config.ped_model != "none"
+        self._has_peds = sim_config.ped_model != "none" and self._agents_sampler.max_peds > 0
 
         if not normalize_actions:
             self.action_space = gym.spaces.Box(
@@ -369,7 +369,8 @@ class SocialNavGraphEnv(gym.Env):
                  reward: AbstractReward,
                  sim_config: SimConfig,
                  render: bool = False,
-                 normalize_actions: bool = False):
+                 normalize_actions: bool = False,
+                 force_max_peds: Optional[int] = None):
         self._sim_wrap = PyMiniSimWrap(agents_sampler,
                                        sim_config,
                                        render,
@@ -377,7 +378,7 @@ class SocialNavGraphEnv(gym.Env):
         self._reward = reward
         self._ped_tracker = ped_tracker
 
-        self._max_peds = agents_sampler.max_peds
+        self._max_peds = force_max_peds if force_max_peds is not None else agents_sampler.max_peds
 
         self._previous_ped_predictions = ped_tracker.get_predictions()
 
@@ -522,13 +523,15 @@ class SocialNavGraphEnvFactory(AbstractEnvFactory):
                  reward: AbstractReward,
                  sim_config: SimConfig,
                  render: bool = False,
-                 normalize_actions: bool = False):
+                 normalize_actions: bool = False,
+                 force_max_peds: Optional[int] = None):
         self._agents_sampler = agents_sampler
         self._tracker_factory = tracker_factory
         self._reward = reward
         self._sim_config = sim_config
         self._render = render
         self._normalize_actions = normalize_actions
+        self._force_max_peds = force_max_peds
 
     def __call__(self) -> SocialNavGraphEnv:
         return SocialNavGraphEnv(self._agents_sampler,
@@ -536,4 +539,5 @@ class SocialNavGraphEnvFactory(AbstractEnvFactory):
                                  self._reward,
                                  self._sim_config,
                                  self._render,
-                                 self._normalize_actions)
+                                 self._normalize_actions,
+                                 self._force_max_peds)
