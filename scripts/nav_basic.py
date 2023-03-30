@@ -43,6 +43,7 @@ def _train(output_dir: str,
                                       logger=logger))
 
     output_dir.mkdir(parents=True)
+    tensorboard_dir = output_dir / "tensorboard"
     config_path = output_dir / "config.yaml"
     nip.dump(config_path, config)
 
@@ -63,6 +64,7 @@ def _train(output_dir: str,
         policy=policy,
         env=train_env,
         verbose=1,
+        tensorboard_log=str(tensorboard_dir),
         **rl_model_params
     )
 
