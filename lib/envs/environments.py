@@ -197,7 +197,9 @@ class PyMiniSimWrap:
             if agents_sample.ped_goals is None:
                 waypoint_tracker = RandomWaypointTracker(world_size=agents_sample.world_size)
             else:
-                waypoint_tracker = FixedWaypointTracker(waypoints=agents_sample.ped_goals[np.newaxis, :, :])
+                waypoint_tracker = FixedWaypointTracker(initial_positions=agents_sample.ped_initial_poses[:, :2],
+                                                        waypoints=agents_sample.ped_goals,
+                                                        loop=True)
 
             if config.ped_model == "hsfm":
                 ped_model = HeadedSocialForceModelPolicy(waypoint_tracker=waypoint_tracker,

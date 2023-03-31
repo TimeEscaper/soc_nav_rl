@@ -7,6 +7,13 @@ from typing import Tuple, Optional, List, Union
 from nip import nip
 from scipy.spatial.distance import cdist
 from pyminisim.core import ROBOT_RADIUS, PEDESTRIAN_RADIUS
+from pyminisim.util import wrap_angle
+
+
+def _random_angle(n: Optional[int] = None):
+    if n is not None:
+        return np.random.uniform(-np.pi, np.pi, (n,))
+    return np.random.uniform(-np.pi, np.pi)
 
 
 @dataclass
@@ -156,3 +163,54 @@ class FixedRobotOnlySampler(AbstractAgentsSampler):
                             robot_goal=self._goal_position.copy(),
                             world_size=(20, 20),  # TODO: Remove this parameter in sampling system
                             ped_initial_poses=None)
+
+
+@nip
+class CircularRobotCentralSampler(AbstractAgentsSampler):
+
+    def __init__(self,
+                 n_peds: Union[int, Tuple[int, int]],
+                 ped_circle_radius: Union[int, Tuple[int, int]]):
+        super(CircularRobotCentralSampler, self).__init__(
+            max_peds=n_peds[1] if isinstance(n_peds, tuple) else n_peds
+        )
+        if isinstance(n_peds, tuple):
+            assert len(n_peds) == 2 and n_peds[1] > n_peds[0] > 0
+        self._n_peds = n_peds
+        self._ped_circle_radius = ped_circle_radius
+
+    def sample(self) -> AgentsSample:
+        if not isinstance(self._n_peds, int):
+            n_peds = np.random.randint(self._n_peds[0], self._n_peds[1])
+        else:
+            n_peds = self._n_peds
+
+        angle_step = 2 * np.pi / n_peds
+        ped_angles = wrap_angle(np.array([angle_step * i for i in range(n_peds)]) + _random_angle())
+        # ped_angles = np.linspace(-np.pi + 0.01, np.pi - 0.01, n_peds)
+        ped_goals_angles = wrap_angle(ped_angles + np.pi)
+        ped_circle_radius = np.random.uniform(self._ped_circle_radius[0],
+                                              self._ped_circle_radius[1]) \
+            if isinstance(self._ped_circle_radius, tuple) else self._ped_circle_radius
+
+        ped_poses = np.stack((ped_circle_radius * np.cos(ped_angles),
+                              ped_circle_radius * np.sin(ped_angles),
+                              _random_angle(n_peds)), axis=1)
+        ped_goals = np.stack((ped_circle_radius * np.cos(ped_goals_angles),
+                              ped_circle_radius * np.sin(ped_goals_angles)), axis=1)
+        ped_goals = ped_goals[:, np.newaxis, :]
+
+        robot_pose = np.array([0., 0., _random_angle()])
+        robot_goal_angle = _random_angle()
+        robot_goal_radius = np.random.uniform(self._ped_circle_radius[0],
+                                              self._ped_circle_radius[1]) \
+            if isinstance(self._ped_circle_radius, tuple) else self._ped_circle_radius
+        robot_goal = np.array([robot_goal_radius * np.cos(robot_goal_angle),
+                               robot_goal_radius * np.sin(robot_goal_angle)])
+
+        return AgentsSample(n_peds=n_peds,
+                            robot_initial_pose=robot_pose,
+                            robot_goal=robot_goal,
+                            world_size=(ped_circle_radius, ped_circle_radius),
+                            ped_initial_poses=ped_poses,
+                            ped_goals=ped_goals)
