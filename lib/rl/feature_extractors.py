@@ -24,7 +24,7 @@ class BasicGraphExtractor(BaseFeaturesExtractor):
 
         self._peds_traj_embedding = nn.Sequential(
             nn.Linear(seq_len * state_dim, embedding_dim),
-            nn.ReLU()
+            nn.Tanh()
         )
         self._ped_query_embedding = nn.Linear(embedding_dim, embedding_dim)
         self._ped_key_embedding = nn.Linear(embedding_dim, embedding_dim)
@@ -35,7 +35,7 @@ class BasicGraphExtractor(BaseFeaturesExtractor):
 
         self._robot_embedding = nn.Sequential(
             nn.Linear(robot_state_dim, embedding_dim),
-            nn.ReLU()
+            nn.Tanh()
         )
         self._robot_query_embedding = nn.Linear(embedding_dim, embedding_dim)
         self._robot_key_embedding = nn.Linear(embedding_dim, embedding_dim)
@@ -46,7 +46,7 @@ class BasicGraphExtractor(BaseFeaturesExtractor):
 
         self._final_feature_embedding = nn.Sequential(
             nn.Linear(embedding_dim, embedding_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(embedding_dim, features_dim)
         )
 

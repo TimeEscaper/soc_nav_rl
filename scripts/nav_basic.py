@@ -10,6 +10,7 @@ from nip.elements import Element
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import Monitor
 from stable_baselines3.common.callbacks import EvalCallback
+from sb3_contrib import RecurrentPPO
 
 from lib.envs import AbstractEnvFactory
 from lib.envs.wrappers import EvalEnvWrapper
@@ -37,8 +38,7 @@ def _train(output_dir: str,
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
 
-    # train_env = _make_subproc_env(train_env_factory, n_proc=n_train_envs)
-    train_env = train_env_factory()
+    train_env = _make_subproc_env(train_env_factory, n_proc=n_train_envs)
     eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else train_env_factory(),
                                       n_eval_episodes=eval_n_episodes,
                                       logger=logger))
@@ -60,7 +60,11 @@ def _train(output_dir: str,
         rl_model_params["policy_kwargs"] = {"features_extractor_class": feature_extractor}
         if feature_extractor_kwargs is not None:
             rl_model_params["policy_kwargs"]["features_extractor_kwargs"] = feature_extractor_kwargs
-    policy = "MultiInputPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpPolicy"
+
+    if rl_model != RecurrentPPO:
+        policy = "MultiInputPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpPolicy"
+    else:
+        policy = "MultiInputLstmPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpLstmPolicy"
     rl_model = rl_model(
         policy=policy,
         env=train_env,

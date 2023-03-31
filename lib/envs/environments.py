@@ -396,9 +396,9 @@ class SocialNavGraphEnv(gym.Env):
                 dtype=np.bool
             ),
             "robot_state": gym.spaces.Box(
-                low=-np.inf,
-                high=np.inf,
-                shape=(4,),
+                low=np.array([-np.inf, -np.inf, -np.inf, -np.pi, -np.inf, -np.inf, -np.inf]),
+                high=np.array([np.inf, np.inf, np.inf, np.pi, np.inf, np.inf, np.inf]),
+                shape=(7,),
                 dtype=np.float
             )
         })
@@ -473,11 +473,14 @@ class SocialNavGraphEnv(gym.Env):
         return detections
 
     @staticmethod
-    def _build_robot_obs(robot_pose: np.ndarray, goal: np.ndarray) -> np.ndarray:
+    def _build_robot_obs(robot_pose: np.ndarray, robot_vel: np.ndarray, goal: np.ndarray) -> np.ndarray:
         return np.array([np.linalg.norm(goal[:2] - robot_pose[:2]),
                          goal[0] - robot_pose[0],
                          goal[1] - robot_pose[1],
-                         robot_pose[2]]).astype(np.float32)
+                         robot_pose[2],
+                         robot_vel[0],
+                         robot_vel[1],
+                         robot_vel[2]]).astype(np.float32)
 
     def _build_peds_obs(self, robot_pose: np.ndarray,
                         current_poses: Dict[int, np.ndarray], predictions: Dict[int, np.ndarray]) -> \
@@ -501,10 +504,11 @@ class SocialNavGraphEnv(gym.Env):
     def _build_obs(self) -> Dict[str, np.ndarray]:
         goal = self._sim_wrap.goal
         robot_pose = self._sim_wrap.sim_state.world.robot.pose
+        robot_vel = self._sim_wrap.sim_state.world.robot.velocity
         current_poses = self._ped_tracker.get_current_poses()
         predictions = {k: v[0] for k, v in self._ped_tracker.get_predictions().items()}
 
-        robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, goal)
+        robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, robot_vel, goal)
         obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_pose, current_poses, predictions)
 
         return {
