@@ -37,7 +37,8 @@ def _train(output_dir: str,
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
 
-    train_env = _make_subproc_env(train_env_factory, n_proc=n_train_envs)
+    # train_env = _make_subproc_env(train_env_factory, n_proc=n_train_envs)
+    train_env = train_env_factory()
     eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else train_env_factory(),
                                       n_eval_episodes=eval_n_episodes,
                                       logger=logger))
@@ -78,12 +79,12 @@ def _train(output_dir: str,
 
 
 def _eval(config: Element,
-          model: Any,
+          rl_model: Any,
           model_path: Path,
           train_env_factory: Optional[AbstractEnvFactory] = None,
           eval_env_factory: Optional[Callable] = None,
           **_):
-    model = model.load(str(model_path))
+    rl_model = rl_model.load(str(model_path))
     if eval_env_factory is not None:
         eval_env = eval_env_factory()
     elif train_env_factory is not None:
@@ -96,7 +97,7 @@ def _eval(config: Element,
         done = False
         obs = eval_env.reset()
         while not done:
-            action, _ = model.predict(obs)
+            action, _ = rl_model.predict(obs)
             obs, reward, done, info = eval_env.step(action)
 
 

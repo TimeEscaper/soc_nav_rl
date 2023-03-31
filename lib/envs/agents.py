@@ -56,7 +56,8 @@ class RandomAgentsSampler(AbstractAgentsSampler):
         super(RandomAgentsSampler, self).__init__(
             max_peds=n_peds[1] if isinstance(n_peds, tuple) else n_peds
         )
-        assert len(n_peds) == 2 and n_peds[1] > n_peds[0] > 0
+        if isinstance(n_peds, tuple):
+            assert len(n_peds) == 2 and n_peds[1] > n_peds[0] > 0
         self._n_peds = n_peds
         self._sampling_square = sampling_square
         self._min_robot_goal_distance = min_robot_goal_distance
