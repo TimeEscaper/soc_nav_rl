@@ -10,8 +10,11 @@ from dataclasses import dataclass
 from nip import nip
 from scipy.spatial.distance import cdist
 from lib.envs.rewards import AbstractReward, RewardContext
-from lib.envs.agents import AbstractAgentsSampler
+from lib.envs.agents_samplers import AbstractAgentsSampler
+from lib.envs.sim_config_samplers import AbstractActionSpaceConfig, AbstractProblemConfigSampler, SimConfig, \
+    ProblemConfig
 from lib.predictors.tracker import PedestrianTracker
+from lib.utils.sampling import get_or_sample_uniform, get_or_sample_bool, get_or_sample_choice
 
 from pyminisim.core import PEDESTRIAN_RADIUS, ROBOT_RADIUS
 from pyminisim.core import Simulation, SimulationState
@@ -24,66 +27,6 @@ from pyminisim.sensors import PedestrianDetectorNoise, PedestrianDetector, Pedes
 from pyminisim.visual import Renderer, CircleDrawing, AbstractDrawing
 
 
-def get_or_sample_uniform(value: Optional[Union[Any, Tuple[Any, Any]]], size: Optional[Tuple[int, ...]] = None) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, tuple):
-        return np.random.uniform(value[0], value[1], size=size)
-    return value
-
-
-def get_or_sample_choice(value: Optional[Union[Any, Tuple[Any, ...], List[Any, ...]]]) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, tuple) or isinstance(value, list):
-        return random.choice(value)
-    return value
-
-
-def get_or_sample_bool(value: Optional[Union[str, bool]]) -> Optional[bool]:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        return random.choice([True, False])
-    return value
-
-
-@dataclass
-@nip
-class SimConfig:
-    ped_model: Optional[Union[str, Tuple[str, ...]]]
-    robot_visible: Union[bool, str] = False
-    detector_range: Optional[Union[float, Tuple[float, float]]] = 5
-    detector_fov: Union[float, Tuple[float, float]] = 360.
-    control_lb: Tuple[float, float] = (0., 0.)
-    control_ub: Tuple[float, float] = (2., 0.9 * np.pi)
-    goal_reach_threshold: float = 0.1
-    max_steps: int = 300
-    sim_dt: float = 0.01
-    policy_dt: float = 0.1
-    rt_factor: Optional[float] = None
-
-    def sample(self) -> SimConfig:
-        return SimConfig(ped_model=get_or_sample_choice(self.ped_model),
-                         robot_visible=get_or_sample_bool(self.robot_visible),
-                         detector_range=get_or_sample_uniform(self.detector_range),
-                         detector_fov=get_or_sample_uniform(self.detector_fov),
-                         control_lb=self.control_lb,
-                         control_ub=self.control_ub,
-                         goal_reach_threshold=self.goal_reach_threshold,
-                         max_steps=self.max_steps,
-                         sim_dt=self.sim_dt,
-                         policy_dt=self.policy_dt,
-                         rt_factor=self.rt_factor)
-
-    def is_deterministic(self) -> bool:
-        randomized = isinstance(self.ped_model, tuple) and \
-                     isinstance(self.robot_visible, str) and \
-                     isinstance(self.detector_range, tuple) and \
-                     isinstance(self.detector_fov, tuple)
-        return not randomized
-
-
 class AbstractEnvFactory(ABC):
 
     @abstractmethod
@@ -94,38 +37,27 @@ class AbstractEnvFactory(ABC):
 class PyMiniSimWrap:
 
     def __init__(self,
-                 agents_sampler: AbstractAgentsSampler,
+                 action_space_config: AbstractActionSpaceConfig,
                  sim_config: SimConfig,
-                 render: bool = False,
-                 normalize_actions: bool = False):
-        self._config_sampler = sim_config
+                 agents_sampler: AbstractAgentsSampler,
+                 problem_sampler: AbstractProblemConfigSampler):
+        self._action_space_config = action_space_config
+        self._sim_config = sim_config
         self._agents_sampler = agents_sampler
-        self._render = render
+        self._problem_sampler = problem_sampler
+        self._render = sim_config.render
 
         self._step_cnt = 0
 
         self._sim: Simulation = None
         self._renderer: Renderer = None
         self._robot_goal: np.ndarray = None
-        self._config: SimConfig = None
+        self._goal_reach_threshold: float = None
+        self._max_steps: int = None
 
-        self._has_peds = sim_config.ped_model != "none" and self._agents_sampler.max_peds > 0
-
-        if not normalize_actions:
-            self.action_space = gym.spaces.Box(
-                low=np.array(sim_config.control_lb),
-                high=np.array(sim_config.control_ub),
-                shape=(2,),
-                dtype=np.float32
-            )
-        else:
-            self.action_space = gym.spaces.Box(
-                low=np.array([-1., -1.]),
-                high=np.array([1., 1.]),
-                shape=(2,),
-                dtype=np.float32
-            )
-        self._normalize_actions = normalize_actions
+    @property
+    def action_space(self) -> gym.spaces.Space:
+        return self._action_space_config.action_space
 
     @property
     def goal(self) -> np.ndarray:
@@ -136,34 +68,21 @@ class PyMiniSimWrap:
         return self._step_cnt
 
     @property
-    def has_pedestrians(self) -> bool:
-        return self._has_peds
-
-    @property
     def render_enabled(self) -> bool:
         return self._render
-
-    @property
-    def current_config(self) -> SimConfig:
-        return self._config
 
     @property
     def sim_state(self) -> SimulationState:
         return self._sim.current_state
 
     def step(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
-        action = np.clip(action,
-                         self.action_space.low, self.action_space.high)
-        if self._normalize_actions:
-            deviation = (np.array(self._config.control_ub) - np.array(self._config.control_lb)) / 2.
-            shift = (np.array(self._config.control_ub) + np.array(self._config.control_lb)) / 2.
-            action = (action * deviation) + shift
+        action = self._action_space_config.get_control(action)
 
         hold_time = 0.
         has_collision = False
-        while hold_time < self._config.policy_dt:
+        while hold_time < self._sim_config.policy_dt:
             self._sim.step(action)
-            hold_time += self._config.sim_dt
+            hold_time += self._sim_config.sim_dt
             if self._renderer is not None:
                 self._renderer.render()
             collisions = self._sim.current_state.world.robot_to_pedestrians_collisions
@@ -172,20 +91,21 @@ class PyMiniSimWrap:
                 break
 
         self._step_cnt += 1
-        truncated = (self._step_cnt > self._config.max_steps) and not has_collision
+        truncated = (self._step_cnt >= self._max_steps) and not has_collision
 
         if has_collision or truncated:
             success = False
         else:
             success = np.linalg.norm(
                 self._sim.current_state.world.robot.pose[:2] - self._robot_goal) \
-                      - ROBOT_RADIUS < self._config.goal_reach_threshold
+                      - ROBOT_RADIUS < self._goal_reach_threshold
 
         return has_collision, truncated, success
 
     def reset(self):
-        config = self._config_sampler.sample()
-        self._config = config
+        problem = self._problem_sampler.sample()
+        self._goal_reach_threshold = problem.goal_reach_threshold
+        self._max_steps = problem.max_steps
 
         agents_sample = self._agents_sampler.sample()
         self._robot_goal = agents_sample.robot_goal
@@ -193,7 +113,7 @@ class PyMiniSimWrap:
         robot_model = UnicycleRobotModel(initial_pose=agents_sample.robot_initial_pose,
                                          initial_control=np.array([0.0, np.deg2rad(0.0)]))
 
-        if self._has_peds:
+        if problem.ped_model != "none" and agents_sample.n_peds > 0:
             if agents_sample.ped_goals is None:
                 waypoint_tracker = RandomWaypointTracker(world_size=agents_sample.world_size)
             else:
@@ -201,37 +121,37 @@ class PyMiniSimWrap:
                                                         waypoints=agents_sample.ped_goals,
                                                         loop=True)
 
-            if config.ped_model == "hsfm":
+            if problem.ped_model == "hsfm":
                 ped_model = HeadedSocialForceModelPolicy(waypoint_tracker=waypoint_tracker,
                                                          n_pedestrians=agents_sample.n_peds,
                                                          initial_poses=agents_sample.ped_initial_poses,
-                                                         robot_visible=config.robot_visible)
-            elif config.ped_model == "orca":
-                ped_model = OptimalReciprocalCollisionAvoidance(dt=config.sim_dt,
+                                                         robot_visible=problem.robot_visible)
+            elif problem.ped_model == "orca":
+                ped_model = OptimalReciprocalCollisionAvoidance(dt=self._sim_config.sim_dt,
                                                                 waypoint_tracker=waypoint_tracker,
                                                                 n_pedestrians=agents_sample.n_peds,
                                                                 initial_poses=agents_sample.ped_initial_poses,
-                                                                robot_visible=config.robot_visible)
+                                                                robot_visible=problem.robot_visible)
             else:
                 raise ValueError()
         else:
             ped_model = None
 
         ped_detector = PedestrianDetector(
-            config=PedestrianDetectorConfig(max_dist=config.detector_range,
-                                            fov=config.detector_fov,
+            config=PedestrianDetectorConfig(max_dist=problem.detector_range,
+                                            fov=problem.detector_fov,
                                             return_type=PedestrianDetectorConfig.RETURN_ABSOLUTE))
 
         sim = Simulation(world_map=EmptyWorld(),
                          robot_model=robot_model,
                          pedestrians_model=ped_model,
                          sensors=[ped_detector],
-                         sim_dt=config.sim_dt,
-                         rt_factor=config.rt_factor)
+                         sim_dt=self._sim_config.sim_dt,
+                         rt_factor=self._sim_config.rt_factor)
         if self._render:
             renderer = Renderer(simulation=sim,
-                                resolution=50.,
-                                screen_size=(1000, 1000))
+                                resolution=70.,
+                                screen_size=(800, 800))
             renderer.draw("goal", CircleDrawing(center=self._robot_goal[:2],
                                                 radius=0.05,
                                                 color=(255, 0, 0)))
@@ -256,127 +176,20 @@ class PyMiniSimWrap:
 
 
 @nip
-class SimpleNavEnv(gym.Env):
-
-    def __init__(self,
-                 agents_sampler: AbstractAgentsSampler,
-                 reward: AbstractReward,
-                 sim_config: SimConfig,
-                 render: bool = False,
-                 normalize_actions: bool = False):
-        assert sim_config.ped_model == "none", "Pedestrians are not supported for the simple navigation env"
-        self._sim_wrap = PyMiniSimWrap(agents_sampler,
-                                       sim_config,
-                                       render,
-                                       normalize_actions)
-        self._reward = reward
-
-        self.observation_space = gym.spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(4,),
-            dtype=np.float32
-        )
-        self.action_space = self._sim_wrap.action_space
-
-    def step(self, action: np.ndarray):
-        previous_robot_pose = self._sim_wrap.sim_state.world.robot.pose
-        goal = self._sim_wrap.goal
-
-        collision, truncated, success = self._sim_wrap.step(action)
-        robot_pose = self._sim_wrap.sim_state.world.robot.pose
-
-        reward_context = RewardContext()
-        reward_context.set("goal", goal)
-        reward_context.set("robot_pose", robot_pose)
-        reward_context.set("previous_robot_pose", previous_robot_pose)
-
-        # https://stable-baselines3.readthedocs.io/en/master/common/logger.html#eval
-        if collision:
-            done = True
-            info = {"done_reason": "collision",
-                    "is_success": False}
-            reward_context.set("collision", True)
-        elif truncated:
-            done = True
-            info = {"done_reason": "truncated",
-                    "is_success": False,
-                    "TimeLimit.truncated": True}  # https://stable-baselines3.readthedocs.io/en/master/guide/rl_tips.html#tips-and-tricks-when-creating-a-custom-environment
-            reward_context.set("truncated", True)
-        elif success:
-            done = True
-            info = {"done_reason": "success",
-                    "is_success": True}
-            reward_context.set("success", True)
-        else:
-            done = False
-            info = {}
-
-        reward = self._reward(reward_context)
-
-        observation = SimpleNavEnv._build_observation(robot_pose, goal)
-
-        return observation, reward, done, info
-
-    def reset(self):
-        self._sim_wrap.reset()
-        goal = self._sim_wrap.goal
-        robot_pose = self._sim_wrap.sim_state.world.robot.pose
-        observation = SimpleNavEnv._build_observation(robot_pose, goal)
-        return observation
-
-    def render(self, mode="human"):
-        pass
-
-    def enable_render(self):
-        self._sim_wrap.enable_render()
-
-    @staticmethod
-    def _build_observation(robot_pose: np.ndarray, goal: np.ndarray) -> np.ndarray:
-        return np.array([np.linalg.norm(goal[:2] - robot_pose[:2]),
-                         goal[0] - robot_pose[0],
-                         goal[1] - robot_pose[1],
-                         robot_pose[2]]).astype(np.float32)
-
-
-@nip
-class SimpleNavEnvFactory(AbstractEnvFactory):
-
-    def __init__(self,
-                 agents_sampler: AbstractAgentsSampler,
-                 reward: AbstractReward,
-                 sim_config: SimConfig,
-                 render: bool = False,
-                 normalize_actions: bool = False):
-        self._agents_sampler = agents_sampler
-        self._reward = reward
-        self._sim_config = sim_config
-        self._render = render
-        self._normalize_actions = normalize_actions
-
-    def __call__(self) -> SimpleNavEnv:
-        return SimpleNavEnv(self._agents_sampler,
-                            self._reward,
-                            self._sim_config,
-                            self._render,
-                            self._normalize_actions)
-
-
-@nip
 class SocialNavGraphEnv(gym.Env):
 
     def __init__(self,
+                 action_space_config: AbstractActionSpaceConfig,
+                 sim_config: SimConfig,
                  agents_sampler: AbstractAgentsSampler,
+                 problem_sampler: AbstractProblemConfigSampler,
                  ped_tracker: PedestrianTracker,
                  reward: AbstractReward,
-                 sim_config: SimConfig,
-                 render: bool = False,
-                 normalize_actions: bool = False,
                  force_max_peds: Optional[int] = None):
-        self._sim_wrap = PyMiniSimWrap(agents_sampler,
+        self._sim_wrap = PyMiniSimWrap(action_space_config,
                                        sim_config,
-                                       render,
-                                       normalize_actions)
+                                       agents_sampler,
+                                       problem_sampler)
         self._reward = reward
         self._ped_tracker = ped_tracker
 
@@ -524,26 +337,26 @@ class SocialNavGraphEnv(gym.Env):
 class SocialNavGraphEnvFactory(AbstractEnvFactory):
 
     def __init__(self,
+                 action_space_config: AbstractActionSpaceConfig,
+                 sim_config: SimConfig,
                  agents_sampler: AbstractAgentsSampler,
+                 problem_sampler: AbstractProblemConfigSampler,
                  tracker_factory: Callable,
                  reward: AbstractReward,
-                 sim_config: SimConfig,
-                 render: bool = False,
-                 normalize_actions: bool = False,
                  force_max_peds: Optional[int] = None):
-        self._agents_sampler = agents_sampler
-        self._tracker_factory = tracker_factory
-        self._reward = reward
+        self._action_space_config = action_space_config
         self._sim_config = sim_config
-        self._render = render
-        self._normalize_actions = normalize_actions
+        self._agents_sampler = agents_sampler
+        self._problem_sampler = problem_sampler
+        self._ped_tracker_factory = tracker_factory
+        self._reward = reward
         self._force_max_peds = force_max_peds
 
     def __call__(self) -> SocialNavGraphEnv:
-        return SocialNavGraphEnv(self._agents_sampler,
-                                 self._tracker_factory(),
-                                 self._reward,
-                                 self._sim_config,
-                                 self._render,
-                                 self._normalize_actions,
-                                 self._force_max_peds)
+        return SocialNavGraphEnv(action_space_config=self._action_space_config,
+                                 sim_config=self._sim_config,
+                                 agents_sampler=self._agents_sampler,
+                                 problem_sampler=self._problem_sampler,
+                                 ped_tracker=self._ped_tracker_factory(),
+                                 reward=self._reward,
+                                 force_max_peds=self._force_max_peds)

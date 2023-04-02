@@ -1,0 +1,62 @@
+n_train_envs: 16
+env_max_steps: &env_max_steps 200
+eval_period: `40 * env_max_steps`
+eval_n_episodes: 10
+
+
+# Environment and problem settings
+action_space: &action_space !ContinuousUnicycleActionSpace
+  lb: (0., -2.826)
+  ub: (2., 2.826)  # 0.9 * pi
+  normalize: true
+
+problem_sampler: &problem_sampler !RandomProblemSampler
+  ped_model: "hsfm"
+  robot_visible: false
+  detector_range: 5.
+  detector_fov: 360.
+  goal_reach_threshold: 0.1
+  max_steps: *env_max_steps
+
+agents_sampler: &agents_sampler !RandomAgentsSampler
+  n_peds: (4, 8)
+  sampling_square: (12, 12)
+  min_robot_goal_distance: 5.
+  ped_linear_vels: (1., 2.3)
+
+
+# Reward function
+reward: &reward !BranchReward
+  success_reward: 10.
+  fail_reward: -20.
+  step_reward: !PotentialGoalReward
+    coefficient: 2.
+  truncated_is_fail: false
+
+
+# Environment
+train_env_factory: !SocialNavGraphEnvFactory
+  action_space_config: *action_space
+  sim_config: !SimConfig
+    render: false
+  agents_sampler: *agents_sampler
+  problem_sampler: *problem_sampler
+  tracker_factory: !CovarianceNetTrackerFactory
+    horizon: 5
+    max_ghost_tracking_time: 3
+    device: "cuda"
+  reward: *reward
+
+
+# RL model
+feature_extractor: !&PoolingGraphExtractor
+feature_extractor_kwargs:
+  embedding_dim: 128
+
+rl_model: !&PPO
+
+
+# Logging
+logger: !ConsoleLogger
+#logger: !NeptuneLogger
+#  neptune_project: "timeescaper/soc-nav-rl"
