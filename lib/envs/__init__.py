@@ -5,3 +5,4 @@ from .sim_config_samplers import SimConfig, ProblemConfig, AbstractActionSpaceCo
 from .rewards import RewardContext, AbstractReward, CompositeReward, BranchReward, PotentialGoalReward
 from .environments import AbstractEnvFactory, SocialNavGraphEnv, SocialNavGraphEnvFactory
 from .wrappers import EvalEnvWrapper
+from .curriculum import AbstractCurriculum, DummyCurriculum, SequentialCurriculum

@@ -1,13 +1,15 @@
 import gym
 import numpy as np
 
+from lib.envs.curriculum import AbstractCurriculum
 from lib.utils import AbstractLogger
 
 
 class EvalEnvWrapper(gym.Env):
 
-    def __init__(self, env: gym.Env, n_eval_episodes: int, logger: AbstractLogger):
+    def __init__(self, env: gym.Env, curriculum: AbstractCurriculum, n_eval_episodes: int, logger: AbstractLogger):
         self._env = env
+        self._curriculum = curriculum
         self._n_eval_episodes = n_eval_episodes
         self._logger = logger
         self.observation_space = env.observation_space
@@ -33,6 +35,13 @@ class EvalEnvWrapper(gym.Env):
                 success_ratio = np.array(self._success_histories).sum() / len(self._success_histories)
                 self._logger.log("eval/mean_cumulative_reward", mean_cumulative_reward)
                 self._logger.log("eval/success_ratio", success_ratio)
+
+                threshold = self._curriculum.get_success_rate_threshold()
+                if threshold is not None:
+                    if success_ratio >= threshold:
+                        self._curriculum.update_stage()
+                current_stage, _ = self._curriculum.get_current_stage()
+                self._logger.log("stage_idx", current_stage)
 
                 self._current_episode = 0
                 self._success_histories = []

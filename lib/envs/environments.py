@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import random
 import numpy as np
 import gym
@@ -15,6 +13,7 @@ from lib.envs.sim_config_samplers import AbstractActionSpaceConfig, AbstractProb
     ProblemConfig
 from lib.predictors.tracker import PedestrianTracker
 from lib.utils.sampling import get_or_sample_uniform, get_or_sample_bool, get_or_sample_choice
+from lib.envs.curriculum import AbstractCurriculum
 
 from pyminisim.core import PEDESTRIAN_RADIUS, ROBOT_RADIUS
 from pyminisim.core import Simulation, SimulationState
@@ -39,12 +38,10 @@ class PyMiniSimWrap:
     def __init__(self,
                  action_space_config: AbstractActionSpaceConfig,
                  sim_config: SimConfig,
-                 agents_sampler: AbstractAgentsSampler,
-                 problem_sampler: AbstractProblemConfigSampler):
+                 curriculum: AbstractCurriculum):
         self._action_space_config = action_space_config
         self._sim_config = sim_config
-        self._agents_sampler = agents_sampler
-        self._problem_sampler = problem_sampler
+        self._curriculum = curriculum
         self._render = sim_config.render
 
         self._step_cnt = 0
@@ -103,11 +100,11 @@ class PyMiniSimWrap:
         return has_collision, truncated, success
 
     def reset(self):
-        problem = self._problem_sampler.sample()
+        problem = self._curriculum.get_problem_sampler().sample()
         self._goal_reach_threshold = problem.goal_reach_threshold
         self._max_steps = problem.max_steps
 
-        agents_sample = self._agents_sampler.sample()
+        agents_sample = self._curriculum.get_agents_sampler().sample()
         self._robot_goal = agents_sample.robot_goal
 
         robot_model = UnicycleRobotModel(initial_pose=agents_sample.robot_initial_pose,
@@ -181,19 +178,17 @@ class SocialNavGraphEnv(gym.Env):
     def __init__(self,
                  action_space_config: AbstractActionSpaceConfig,
                  sim_config: SimConfig,
-                 agents_sampler: AbstractAgentsSampler,
-                 problem_sampler: AbstractProblemConfigSampler,
+                 curriculum: AbstractCurriculum,
                  ped_tracker: PedestrianTracker,
                  reward: AbstractReward,
-                 force_max_peds: Optional[int] = None):
+                 peds_padding: int):
         self._sim_wrap = PyMiniSimWrap(action_space_config,
                                        sim_config,
-                                       agents_sampler,
-                                       problem_sampler)
+                                       curriculum)
         self._reward = reward
         self._ped_tracker = ped_tracker
 
-        self._max_peds = force_max_peds if force_max_peds is not None else agents_sampler.max_peds
+        self._peds_padding = peds_padding
 
         self._previous_ped_predictions = ped_tracker.get_predictions()
 
@@ -201,13 +196,13 @@ class SocialNavGraphEnv(gym.Env):
             "peds_traj": gym.spaces.Box(
                 low=-np.inf,
                 high=np.inf,
-                shape=(self._max_peds, ped_tracker.horizon + 1, 2),  # Current state + predictions = 1 + horizon
+                shape=(self._peds_padding, ped_tracker.horizon + 1, 2),  # Current state + predictions = 1 + horizon
                 dtype=np.float
             ),
             "peds_visibility": gym.spaces.Box(
                 low=False,
                 high=True,
-                shape=(self._max_peds,),
+                shape=(self._peds_padding,),
                 dtype=np.bool
             ),
             "robot_state": gym.spaces.Box(
@@ -300,9 +295,9 @@ class SocialNavGraphEnv(gym.Env):
     def _build_peds_obs(self, robot_pose: np.ndarray,
                         current_poses: Dict[int, np.ndarray], predictions: Dict[int, np.ndarray]) -> \
             Tuple[np.ndarray, np.ndarray]:
-        obs_ped_traj = np.ones((self._max_peds, self._ped_tracker.horizon + 1, 2)) * 100.
+        obs_ped_traj = np.ones((self._peds_padding, self._ped_tracker.horizon + 1, 2)) * 100.
         obs_peds_ids = current_poses.keys()
-        obs_peds_vis = np.zeros(self._max_peds, dtype=np.bool)
+        obs_peds_vis = np.zeros(self._peds_padding, dtype=np.bool)
         for k in obs_peds_ids:
             obs_ped_traj[k, 0, :] = current_poses[k] - robot_pose[:2]
             obs_ped_traj[k, 1:, :] = predictions[k][0] - robot_pose[:2]
@@ -339,24 +334,21 @@ class SocialNavGraphEnvFactory(AbstractEnvFactory):
     def __init__(self,
                  action_space_config: AbstractActionSpaceConfig,
                  sim_config: SimConfig,
-                 agents_sampler: AbstractAgentsSampler,
-                 problem_sampler: AbstractProblemConfigSampler,
+                 curriculum: AbstractCurriculum,
                  tracker_factory: Callable,
                  reward: AbstractReward,
-                 force_max_peds: Optional[int] = None):
+                 peds_padding: int):
         self._action_space_config = action_space_config
         self._sim_config = sim_config
-        self._agents_sampler = agents_sampler
-        self._problem_sampler = problem_sampler
+        self._curriculum = curriculum
         self._ped_tracker_factory = tracker_factory
         self._reward = reward
-        self._force_max_peds = force_max_peds
+        self._peds_padding = peds_padding
 
     def __call__(self) -> SocialNavGraphEnv:
         return SocialNavGraphEnv(action_space_config=self._action_space_config,
                                  sim_config=self._sim_config,
-                                 agents_sampler=self._agents_sampler,
-                                 problem_sampler=self._problem_sampler,
+                                 curriculum=self._curriculum,
                                  ped_tracker=self._ped_tracker_factory(),
                                  reward=self._reward,
-                                 force_max_peds=self._force_max_peds)
+                                 peds_padding=self._peds_padding)

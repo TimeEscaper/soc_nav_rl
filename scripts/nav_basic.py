@@ -13,6 +13,7 @@ from stable_baselines3.common.callbacks import EvalCallback
 from sb3_contrib import RecurrentPPO
 
 from lib.envs import AbstractEnvFactory
+from lib.envs.curriculum import AbstractCurriculum
 from lib.envs.wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
 
@@ -28,6 +29,7 @@ def _train(output_dir: str,
            eval_period: int,
            eval_n_episodes: int,
            rl_model: Any,
+           curriculum: AbstractCurriculum,
            config: Element,
            rl_model_params: Optional[Dict[str, Any]] = None,
            eval_env_factory: Optional[Callable] = None,
@@ -40,6 +42,7 @@ def _train(output_dir: str,
 
     train_env = _make_subproc_env(train_env_factory, n_proc=n_train_envs)
     eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else train_env_factory(),
+                                      curriculum,
                                       n_eval_episodes=eval_n_episodes,
                                       logger=logger))
 
