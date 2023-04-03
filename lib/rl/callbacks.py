@@ -208,6 +208,10 @@ class CustomEvalCallback(EventCallback):
             if self.callback is not None:
                 continue_training = continue_training and self._on_event()
 
+            new_stage_idx, _ = self.curriculum.get_current_stage()
+            if new_stage_idx != stage_idx:
+                self.best_mean_reward = -np.inf
+
         return continue_training
 
     def update_child_locals(self, locals_: Dict[str, Any]) -> None:

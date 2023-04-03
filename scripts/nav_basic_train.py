@@ -90,40 +90,13 @@ def _train(output_dir: str,
     logger.close()
 
 
-def _eval(config: Element,
-          rl_model: Any,
-          model_path: Path,
-          train_env_factory: Optional[AbstractEnvFactory] = None,
-          eval_env_factory: Optional[Callable] = None,
-          **_):
-    rl_model = rl_model.load(str(model_path))
-    if eval_env_factory is not None:
-        eval_env = eval_env_factory()
-    elif train_env_factory is not None:
-        eval_env = train_env_factory()
-    else:
-        raise ValueError("Train env or eval env must be set")
-    eval_env.enable_render()
-
-    while True:
-        done = False
-        obs = eval_env.reset()
-        while not done:
-            action, _ = rl_model.predict(obs)
-            obs, reward, done, info = eval_env.step(action)
-
-
 def main(config: str,
          output_dir: Optional[str] = "./experiments",
          experiment_name: Optional[str] = None,
          seed: int = 42):
     config = Path(config)
-    if config.is_file():
-        nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name, seed=seed),
-                verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
-    elif config.is_dir():
-        nip.run(config / "config.yaml", partial(_eval, model_path=config / "best_model.zip"),
-                verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
+    nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name, seed=seed),
+            verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
 
 
 if __name__ == '__main__':
