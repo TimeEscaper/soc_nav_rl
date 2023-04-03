@@ -37,16 +37,20 @@ curriculum: &curriculum !SequentialCurriculum
       goal_reach_threshold: 0.1
       max_steps: 200
   stages:
-    - ("no_ped", 0.)
-    - ("random_ped", 0.)
+    - ("no_ped", 1.)
+    - ("random_ped", 0.8)
 
 
 # Reward function
 reward: &reward !BranchReward
   success_reward: 10.
   fail_reward: -20.
-  step_reward: !PotentialGoalReward
-    coefficient: 2.
+  step_reward: !CompositeReward
+    rewards:
+      - !PotentialGoalReward
+        coefficient: 2.
+      - !AngularVelocityPenalty
+        coefficient: 0.005
   truncated_is_fail: false
 
 

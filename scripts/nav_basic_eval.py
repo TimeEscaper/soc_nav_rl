@@ -91,13 +91,19 @@ def _train(output_dir: str,
 
 
 def _eval(config: Element,
+          stage: int,
           seed: int,
           rl_model: Any,
           model_path: Path,
+          curriculum: AbstractCurriculum,
           train_env_factory: Optional[AbstractEnvFactory] = None,
           eval_env_factory: Optional[Callable] = None,
           **_):
     seed_all(seed)
+
+    for _ in range(stage):
+        curriculum.update_stage()
+
     rl_model = rl_model.load(str(model_path))
     if eval_env_factory is not None:
         eval_env = eval_env_factory()
@@ -121,13 +127,13 @@ def main(result_dir: str,
     result_dir = Path(result_dir)
 
     model_files = sorted(result_dir.glob("*.zip"))
-    if stage is not None:
-        model_file = model_files[stage]
-    else:
-        model_file = model_files[-1]
-    print(f"Evaluating {model_file.name}")
+    if stage is None:
+        stage = len(model_files) - 1
 
-    nip.run(result_dir / "config.yaml", partial(_eval, model_path=model_file, seed=seed),
+    model_file = model_files[stage]
+    print(f"Evaluating {model_file.name} (stage {stage})")
+
+    nip.run(result_dir / "config.yaml", partial(_eval, model_path=model_file, seed=seed, stage=stage),
             verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
 
 

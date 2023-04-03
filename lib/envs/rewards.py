@@ -1,7 +1,7 @@
 import numpy as np
 
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, Tuple, Union
+from typing import Dict, Any, Optional, Tuple, Union, List
 from nip import nip
 
 
@@ -25,24 +25,30 @@ class RewardContext:
 class AbstractReward(ABC):
 
     @abstractmethod
-    def __call__(self, context: RewardContext) -> float:
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
         raise NotImplementedError()
 
 
 @nip
 class CompositeReward(AbstractReward):
 
-    def __init__(self, rewards: Tuple[AbstractReward], weights: Optional[Tuple[float]] = None):
+    def __init__(self, rewards: List[AbstractReward], weights: Optional[Tuple[float]] = None):
         super(CompositeReward, self).__init__()
         if weights is not None:
             assert len(rewards) == len(weights), "Number of weights must be same as number of rewards"
         else:
-            weights = (1. for _ in range(len(rewards)))
+            weights = [1. for _ in range(len(rewards))]
         self._rewards = rewards
         self._weights = weights
 
-    def __call__(self, context: RewardContext) -> float:
-        return sum([weight * reward(context) for reward, weight in zip(self._rewards, self._weights)])
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
+        total_reward = 0.
+        total_info = {}
+        for reward_fn, weight in zip(self._rewards, self._weights):
+            reward, info = reward_fn(context)
+            total_reward += weight * reward
+            total_info.update(info)
+        return total_reward, total_info
 
 
 @nip
@@ -58,7 +64,7 @@ class BranchReward(AbstractReward):
         self._fail_reward = fail_reward
         self._truncated_is_fail = truncated_is_fail
 
-    def __call__(self, context: RewardContext) -> float:
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
         collision = context.get("collision") or False
         truncated = context.get("truncated") or False
         if collision or (truncated and self._truncated_is_fail):
@@ -69,8 +75,13 @@ class BranchReward(AbstractReward):
         return BranchReward._return_reward(self._step_reward, context)
 
     @staticmethod
-    def _return_reward(reward: Union[AbstractReward, float], context: RewardContext) -> float:
-        return reward(context) if isinstance(reward, AbstractReward) else reward
+    def _return_reward(reward: Union[AbstractReward, float],
+                       context: RewardContext) -> Tuple[float, Dict[str, float]]:
+        if isinstance(reward, AbstractReward):
+            reward, info = reward(context)
+            info["branch"] = reward
+            return reward, info
+        return reward, {"branch": reward}
 
 
 @nip
@@ -79,10 +90,23 @@ class PotentialGoalReward(AbstractReward):
     def __init__(self, coefficient: float = 2.):
         self._coefficient = coefficient
 
-    def __call__(self, context: RewardContext) -> float:
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
         pose = context.get("robot_pose")[:2]
         prev_pose = context.get("previous_robot_pose")[:2]
         goal = context.get("goal")[:2]
         d_t = np.linalg.norm(pose - goal)
         d_t_prev = np.linalg.norm(prev_pose - goal)
-        return self._coefficient * (-d_t + d_t_prev)
+        reward = self._coefficient * (-d_t + d_t_prev)
+        return reward, {"goal_potential": reward}
+
+
+@nip
+class AngularVelocityPenalty(AbstractReward):
+
+    def __init__(self, coefficient: float = 0.005):
+        assert coefficient >= 0., "Coefficient must be positive (minus sign will be added automatically in the class)"
+        self._coefficient = -coefficient
+
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
+        reward = self._coefficient * abs(context.get("robot_velocity")[2])
+        return reward, {"angular_velocity_penalty": reward}

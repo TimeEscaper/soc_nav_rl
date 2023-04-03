@@ -234,6 +234,7 @@ class SocialNavGraphEnv(gym.Env):
         reward_context = RewardContext()
         reward_context.set("goal", goal)
         reward_context.set("robot_pose", robot_pose)
+        reward_context.set("robot_velocity", self._sim_wrap.sim_state.world.robot.velocity)
         reward_context.set("previous_robot_pose", previous_robot_pose)
         reward_context.set("previous_ped_predictions", previous_predictions)
 
@@ -258,7 +259,8 @@ class SocialNavGraphEnv(gym.Env):
             done = False
             info = {}
 
-        reward = self._reward(reward_context)
+        reward, reward_info = self._reward(reward_context)
+        info.update({"reward": reward_info})
 
         observation = self._build_obs()
 
