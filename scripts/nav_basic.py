@@ -16,6 +16,7 @@ from lib.envs.curriculum import AbstractCurriculum
 from lib.envs.wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
 from lib.rl.callbacks import CustomEvalCallback
+from lib.utils.sampling import seed_all
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
@@ -24,6 +25,7 @@ def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
 
 def _train(output_dir: str,
            experiment_name: str,
+           seed: int,
            train_env_factory: AbstractEnvFactory,
            n_train_envs: int,
            eval_period: int,
@@ -37,6 +39,7 @@ def _train(output_dir: str,
            feature_extractor: Optional = None,
            feature_extractor_kwargs: Optional[Dict[str, Any]] = None,
            **_):
+    seed_all(seed)
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
 
@@ -79,6 +82,7 @@ def _train(output_dir: str,
 
     logger.init()
     logger.log("experiment_id", str(output_dir.name))
+    logger.log("seed", str(seed))
     logger.upload_config(config_path)
     rl_model.learn(int(1e9), callback=eval_callback)
 
@@ -109,10 +113,13 @@ def _eval(config: Element,
             obs, reward, done, info = eval_env.step(action)
 
 
-def main(config: str, output_dir: Optional[str] = "./experiments", experiment_name: Optional[str] = None):
+def main(config: str,
+         output_dir: Optional[str] = "./experiments",
+         experiment_name: Optional[str] = None,
+         seed: int = 42):
     config = Path(config)
     if config.is_file():
-        nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name),
+        nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name, seed=seed),
                 verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
     elif config.is_dir():
         nip.run(config / "config.yaml", partial(_eval, model_path=config / "best_model.zip"),

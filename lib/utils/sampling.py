@@ -1,5 +1,6 @@
 import random
 import numpy as np
+import torch
 
 from typing import Optional, Union, Any, Tuple, List
 
@@ -39,3 +40,10 @@ def get_or_sample_int(value: Union[int, Tuple[int, int]]) -> int:
 
 def random_angle(size: Optional[Union[int, Tuple[int, ...]]] = None):
     return np.random.uniform(-np.pi, np.pi, size)
+
+
+def seed_all(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
