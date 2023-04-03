@@ -9,13 +9,13 @@ from pathlib import Path
 from nip.elements import Element
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import Monitor
-from stable_baselines3.common.callbacks import EvalCallback
 from sb3_contrib import RecurrentPPO
 
 from lib.envs import AbstractEnvFactory
 from lib.envs.curriculum import AbstractCurriculum
 from lib.envs.wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
+from lib.rl.callbacks import CustomEvalCallback
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
@@ -51,12 +51,13 @@ def _train(output_dir: str,
     config_path = output_dir / "config.yaml"
     nip.dump(config_path, config)
 
-    eval_callback = EvalCallback(eval_env=eval_env,
-                                 n_eval_episodes=eval_n_episodes,
-                                 eval_freq=eval_period,
-                                 best_model_save_path=str(output_dir),
-                                 deterministic=True,
-                                 verbose=1)
+    eval_callback = CustomEvalCallback(eval_env=eval_env,
+                                       curriculum=curriculum,
+                                       n_eval_episodes=eval_n_episodes,
+                                       eval_freq=eval_period,
+                                       best_model_save_path=str(output_dir),
+                                       deterministic=True,
+                                       verbose=1)
 
     rl_model_params = rl_model_params or {}
     if feature_extractor is not None:
