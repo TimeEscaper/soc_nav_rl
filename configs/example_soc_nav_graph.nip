@@ -1,7 +1,7 @@
 n_train_envs: 16
 env_max_steps: &env_max_steps 200
 eval_period: `40 * env_max_steps`
-eval_n_episodes: 10
+eval_n_episodes: &eval_n_episodes 10
 
 
 # Environment and problem settings
@@ -75,6 +75,12 @@ feature_extractor_kwargs:
   embedding_dim: 128
 
 rl_model: !&PPO
+#rl_model_params:
+#  policy_kwargs:
+#    activation_fn: "tanh"
+#    net_arch:
+#      pi: [256, 128, 32]
+#      vf: [256, 128, 32]
 
 
 # Logging

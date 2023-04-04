@@ -1,6 +1,7 @@
 import fire
 import gym
 import nip
+import torch
 
 from datetime import datetime
 from typing import Optional, Callable, Dict, Any
@@ -17,6 +18,7 @@ from lib.envs.wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
 from lib.rl.callbacks import CustomEvalCallback
 from lib.utils.sampling import seed_all
+from lib.utils.layers import get_activation
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
@@ -65,9 +67,15 @@ def _train(output_dir: str,
 
     rl_model_params = rl_model_params or {}
     if feature_extractor is not None:
-        rl_model_params["policy_kwargs"] = {"features_extractor_class": feature_extractor}
+        if "policy_kwargs" in rl_model_params:
+            rl_model_params["policy_kwargs"]["features_extractor_class"] = feature_extractor
+        else:
+            rl_model_params["policy_kwargs"] = {"features_extractor_class": feature_extractor}
         if feature_extractor_kwargs is not None:
             rl_model_params["policy_kwargs"]["features_extractor_kwargs"] = feature_extractor_kwargs
+    if "policy_kwargs" in rl_model_params and "activation_fn" in rl_model_params["policy_kwargs"]:
+        rl_model_params["policy_kwargs"]["activation_fn"] = get_activation(
+            rl_model_params["policy_kwargs"]["activation_fn"])
 
     if rl_model != RecurrentPPO:
         policy = "MultiInputPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpPolicy"
