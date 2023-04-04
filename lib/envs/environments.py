@@ -29,7 +29,7 @@ from pyminisim.visual import Renderer, CircleDrawing, AbstractDrawing
 class AbstractEnvFactory(ABC):
 
     @abstractmethod
-    def __call__(self) -> gym.Env:
+    def __call__(self, is_eval: bool) -> gym.Env:
         raise NotImplementedError()
 
 
@@ -38,11 +38,13 @@ class PyMiniSimWrap:
     def __init__(self,
                  action_space_config: AbstractActionSpaceConfig,
                  sim_config: SimConfig,
-                 curriculum: AbstractCurriculum):
+                 curriculum: AbstractCurriculum,
+                 is_eval: bool):
         self._action_space_config = action_space_config
         self._sim_config = sim_config
         self._curriculum = curriculum
         self._render = sim_config.render
+        self._is_eval = is_eval
 
         self._step_cnt = 0
 
@@ -100,11 +102,13 @@ class PyMiniSimWrap:
         return has_collision, truncated, success
 
     def reset(self):
-        problem = self._curriculum.get_problem_sampler().sample()
+        problem = self._curriculum.get_problem_sampler().sample() if not self._is_eval \
+            else self._curriculum.get_eval_problem_sampler().sample()
         self._goal_reach_threshold = problem.goal_reach_threshold
         self._max_steps = problem.max_steps
 
-        agents_sample = self._curriculum.get_agents_sampler().sample()
+        agents_sample = self._curriculum.get_agents_sampler().sample() if not self._is_eval \
+            else self._curriculum.get_eval_agents_sampler().sample()
         self._robot_goal = agents_sample.robot_goal
 
         robot_model = UnicycleRobotModel(initial_pose=agents_sample.robot_initial_pose,
@@ -181,10 +185,12 @@ class SocialNavGraphEnv(gym.Env):
                  curriculum: AbstractCurriculum,
                  ped_tracker: PedestrianTracker,
                  reward: AbstractReward,
-                 peds_padding: int):
+                 peds_padding: int,
+                 is_eval: bool):
         self._sim_wrap = PyMiniSimWrap(action_space_config,
                                        sim_config,
-                                       curriculum)
+                                       curriculum,
+                                       is_eval)
         self._reward = reward
         self._ped_tracker = ped_tracker
 
@@ -347,10 +353,11 @@ class SocialNavGraphEnvFactory(AbstractEnvFactory):
         self._reward = reward
         self._peds_padding = peds_padding
 
-    def __call__(self) -> SocialNavGraphEnv:
+    def __call__(self, is_eval: bool) -> SocialNavGraphEnv:
         return SocialNavGraphEnv(action_space_config=self._action_space_config,
                                  sim_config=self._sim_config,
                                  curriculum=self._curriculum,
                                  ped_tracker=self._ped_tracker_factory(),
                                  reward=self._reward,
-                                 peds_padding=self._peds_padding)
+                                 peds_padding=self._peds_padding,
+                                 is_eval=is_eval)

@@ -9,6 +9,7 @@ from pathlib import Path
 from nip.elements import Element
 from stable_baselines3.common.vec_env import SubprocVecEnv
 from stable_baselines3.common.env_util import Monitor
+from stable_baselines3.common.evaluation import evaluate_policy
 from sb3_contrib import RecurrentPPO
 
 from lib.envs import AbstractEnvFactory
@@ -108,17 +109,28 @@ def _eval(config: Element,
     if eval_env_factory is not None:
         eval_env = eval_env_factory()
     elif train_env_factory is not None:
-        eval_env = train_env_factory()
+        eval_env = train_env_factory(is_eval=True)
     else:
         raise ValueError("Train env or eval env must be set")
     eval_env.enable_render()
 
-    while True:
-        done = False
-        obs = eval_env.reset()
-        while not done:
-            action, _ = rl_model.predict(obs)
-            obs, reward, done, info = eval_env.step(action)
+    evaluate_policy(
+        rl_model,
+        eval_env,
+        n_eval_episodes=10,
+        render=False,
+        deterministic=True,
+        return_episode_rewards=True,
+        warn=True
+    )
+
+    # while True:
+    #     done = False
+    #     states = None
+    #     obs = eval_env.reset()
+    #     while not done:
+    #         action, states = rl_model.predict(obs, state=states, deterministic=True)
+    #         obs, reward, done, info = eval_env.step(action)
 
 
 def main(result_dir: str,

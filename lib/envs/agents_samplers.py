@@ -231,3 +231,17 @@ class CircularRobotCentralSampler(AbstractAgentsSampler):
                             ped_initial_poses=ped_poses,
                             ped_linear_vels=ped_vels,
                             ped_goals=ped_goals)
+
+
+@nip
+class ProxyFixedAgentsSampler(AbstractAgentsSampler):
+
+    def __init__(self, sampler: AbstractAgentsSampler, n_samples: int):
+        super(ProxyFixedAgentsSampler, self).__init__(sampler.max_peds)
+        self._samples = [sampler.sample() for _ in range(n_samples)]
+        self._current_idx = 0
+
+    def sample(self) -> AgentsSample:
+        sample = self._samples[self._current_idx]
+        self._current_idx = self._current_idx + 1 if self._current_idx < len(self._samples) - 1 else 0
+        return sample

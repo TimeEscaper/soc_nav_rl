@@ -137,3 +137,17 @@ class RandomProblemSampler(AbstractProblemConfigSampler):
             goal_reach_threshold=self._goal_reach_threshold,
             max_steps=self._max_steps
         )
+
+
+@nip
+class ProxyFixedProblemSampler(AbstractProblemConfigSampler):
+
+    def __init__(self, sampler: AbstractProblemConfigSampler, n_samples: int):
+        super(ProxyFixedProblemSampler, self).__init__()
+        self._configs = [sampler.sample() for _ in range(n_samples)]
+        self._current_idx = 0
+
+    def sample(self) -> ProblemConfig:
+        config = self._configs[self._current_idx]
+        self._current_idx = self._current_idx + 1 if self._current_idx < len(self._configs) - 1 else 0
+        return config

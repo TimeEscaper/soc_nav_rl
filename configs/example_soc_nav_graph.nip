@@ -39,6 +39,7 @@ curriculum: &curriculum !SequentialCurriculum
   stages:
     - ("no_ped", 1.)
     - ("random_ped", 0.8)
+  n_eval_episodes: `eval_n_episodes + 1`  # Hack for the stable-baselines3 evaluation pipeline
 
 
 # Reward function
