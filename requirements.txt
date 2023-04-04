@@ -5,3 +5,4 @@ sb3-contrib==1.7.0
 fire==0.5.0
 nip-config==0.8.4
 neptune
+do-mpc
