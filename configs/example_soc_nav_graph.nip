@@ -52,6 +52,8 @@ reward: &reward !BranchReward
         coefficient: 2.
       - !AngularVelocityPenalty
         coefficient: 0.005
+      - !BasicPredictionPenalty
+        factor: 20.
   truncated_is_fail: false
 
 

@@ -3,6 +3,7 @@ import numpy as np
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, Tuple, Union, List
 from nip import nip
+from pyminisim.core import ROBOT_RADIUS, PEDESTRIAN_RADIUS
 
 
 class RewardContext:
@@ -110,3 +111,36 @@ class AngularVelocityPenalty(AbstractReward):
     def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
         reward = self._coefficient * abs(context.get("robot_velocity")[2])
         return reward, {"angular_velocity_penalty": reward}
+
+
+@nip
+class BasicPredictionPenalty(AbstractReward):
+
+    def __init__(self, factor: float = 20.):
+        assert factor >= 0., "Coefficient must be positive (minus sign will be added automatically in the class)"
+        self._factor = -factor
+
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
+        robot_position = context.get("robot_pose")[:2]
+        predictions = context.get("previous_ped_predictions")
+
+        reward = 0.
+        if len(predictions) != 0:
+            min_reward = np.inf
+            has_collision = False
+            for ped_predictions in predictions.values():
+                distances = np.linalg.norm(robot_position - ped_predictions[0], axis=1)
+                collision_mask = distances <= ROBOT_RADIUS + PEDESTRIAN_RADIUS
+                if collision_mask.any():
+                    has_collision = True
+                    collision_idx = np.argmax(collision_mask)
+                    penalty = self._factor / (2. ** (collision_idx + 1))
+                    if penalty < min_reward:
+                        min_reward = penalty
+
+            if has_collision:
+                reward = min_reward
+
+        return reward, {"prediction_penalty": reward}
+        # reward = self._coefficient * abs(context.get("robot_velocity")[2])
+        # return reward, {"angular_velocity_penalty": reward}
