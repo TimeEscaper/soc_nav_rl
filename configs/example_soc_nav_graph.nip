@@ -76,7 +76,7 @@ reward: &reward !BranchReward
 train_env_factory: !SocialNavGraphEnvFactory
   action_space_config: *action_space
   sim_config: !SimConfig
-    render: true
+    render: false
   curriculum: *curriculum
   tracker_factory: !CovarianceNetTrackerFactory
     horizon: 25

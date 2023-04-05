@@ -122,7 +122,7 @@ class PyMiniSimWrap:
         subgoal_reached = False
         while True:
             control, info = self._controller.step(robot_state, self._ped_tracker.get_predictions())
-            if "mpc_traj" in info:
+            if "mpc_traj" in info and self._renderer is not None:
                 self._renderer.draw(f"mpc_traj", CircleDrawing(info["mpc_traj"], 0.04, (209, 133, 128)))
             has_collision = self._step_end2end(control)
             if has_collision:
