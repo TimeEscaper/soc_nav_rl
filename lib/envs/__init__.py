@@ -5,6 +5,6 @@ from .sim_config_samplers import SimConfig, ProblemConfig, AbstractActionSpaceCo
     ContinuousPolarSubgoalActionSpace, MultiPolarSubgoalActionSpace
 from .rewards import RewardContext, AbstractReward, CompositeReward, BranchReward, PotentialGoalReward, \
     AngularVelocityPenalty, BasicPredictionPenalty
-from .environments import AbstractEnvFactory, SocialNavGraphEnv, SocialNavGraphEnvFactory
+from .environments import AbstractEnvFactory, End2EndPredictionEnvFactory  # SocialNavGraphEnv, SocialNavGraphEnvFactory
 from .wrappers import EvalEnvWrapper
 from .curriculum import AbstractCurriculum, DummyCurriculum, SequentialCurriculum

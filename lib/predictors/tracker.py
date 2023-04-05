@@ -1,5 +1,6 @@
 import numpy as np
 
+from abc import ABC, abstractmethod
 from typing import Dict, Optional, Tuple
 from nip import nip
 from lib.predictors.traj_predictors import AbstractTrajectoryPredictor, CovarianceNetPredictor
@@ -235,19 +236,42 @@ class PedestrianTracker:
                 ghost.update()
 
 
+class AbstractTrackerFactory(ABC):
+
+    def __init__(self, horizon: int):
+        self._horizon = horizon
+
+    @property
+    def horizon(self) -> int:
+        return self._horizon
+
+    @abstractmethod
+    def __call__(self, *args, **kwargs):
+        raise NotImplementedError()
+
+
 @nip
-class CovarianceNetTrackerFactory:
+class CovarianceNetTrackerFactory(AbstractTrackerFactory):
 
     def __init__(self,
                  horizon: int,
                  max_ghost_tracking_time: int,
-                 device: str = "cpu"):
+                 device: str = "cuda",
+                 share_network: bool = False):
+        super(CovarianceNetTrackerFactory, self).__init__(horizon)
         self._horizon = horizon
         self._max_ghost_tracking_time = max_ghost_tracking_time
         self._device = device
+        if share_network:
+            self._network = CovarianceNetPredictor(horizon=self._horizon, device=self._device)
+        else:
+            self._network = None
 
     def __call__(self):
-        predictor = CovarianceNetPredictor(horizon=self._horizon, device=self._device)
+        if self._network is None:
+            predictor = CovarianceNetPredictor(horizon=self._horizon, device=self._device)
+        else:
+            predictor = self._network
         tracker = PedestrianTracker(predictor=predictor,
                                     max_ghost_tracking_time=self._max_ghost_tracking_time)
         return tracker
