@@ -14,6 +14,7 @@ from lib.envs.sim_config_samplers import AbstractActionSpaceConfig, AbstractProb
 from lib.predictors.tracker import PedestrianTracker
 from lib.utils.sampling import get_or_sample_uniform, get_or_sample_bool, get_or_sample_choice
 from lib.envs.curriculum import AbstractCurriculum
+from lib.controllers.controllers import AbstractController, AbstractControllerFactory
 
 from pyminisim.core import PEDESTRIAN_RADIUS, ROBOT_RADIUS
 from pyminisim.core import Simulation, SimulationState
@@ -23,7 +24,7 @@ from pyminisim.pedestrians import HeadedSocialForceModelPolicy, OptimalReciproca
     RandomWaypointTracker, FixedWaypointTracker
 from pyminisim.sensors import PedestrianDetectorNoise, PedestrianDetector, PedestrianDetectorConfig, \
     LidarSensor, LidarSensorNoise
-from pyminisim.visual import Renderer, CircleDrawing, AbstractDrawing
+from pyminisim.visual import Renderer, CircleDrawing, AbstractDrawing, Covariance2dDrawing
 
 
 class AbstractEnvFactory(ABC):
@@ -39,12 +40,24 @@ class PyMiniSimWrap:
                  action_space_config: AbstractActionSpaceConfig,
                  sim_config: SimConfig,
                  curriculum: AbstractCurriculum,
-                 is_eval: bool):
+                 ped_tracker: PedestrianTracker,
+                 is_eval: bool,
+                 controller: Optional[AbstractController] = None):
+        if controller is not None:
+            assert action_space_config.action_type == AbstractActionSpaceConfig.TYPE_SUBGOAL, \
+                f"Subgoal action space must be set if controller is specified"
+        else:
+            assert action_space_config.action_type == AbstractActionSpaceConfig.TYPE_END2END, \
+                f"End2end action space must be set if controller is not specified"
+
         self._action_space_config = action_space_config
         self._sim_config = sim_config
         self._curriculum = curriculum
         self._render = sim_config.render
         self._is_eval = is_eval
+
+        self._ped_tracker = ped_tracker
+        self._controller = controller
 
         self._step_cnt = 0
 
@@ -52,7 +65,9 @@ class PyMiniSimWrap:
         self._renderer: Renderer = None
         self._robot_goal: np.ndarray = None
         self._goal_reach_threshold: float = None
+        self._subgoal_reach_threshold: float = None
         self._max_steps: int = None
+        self._max_subgoal_steps: int = None
 
     @property
     def action_space(self) -> gym.spaces.Space:
@@ -74,9 +89,11 @@ class PyMiniSimWrap:
     def sim_state(self) -> SimulationState:
         return self._sim.current_state
 
-    def step(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
-        action = self._action_space_config.get_control(action)
+    @property
+    def ped_tracker(self) -> PedestrianTracker:
+        return self._ped_tracker
 
+    def _step_end2end(self, action: np.ndarray) -> bool:
         hold_time = 0.
         has_collision = False
         while hold_time < self._sim_config.policy_dt:
@@ -88,6 +105,45 @@ class PyMiniSimWrap:
             has_collision = collisions is not None and len(collisions) > 0
             if has_collision:
                 break
+        self._ped_tracker.update(self._get_detections())
+        self._draw_predictions()
+        return has_collision
+
+    def _step_subgoal(self, action: np.ndarray) -> Tuple[bool, bool]:
+        subgoal = self._subgoal_to_absolute(action)
+        robot_state = self._sim.current_state.world.robot.pose
+        self._controller.set_goal(state=robot_state, goal=subgoal)
+
+        if self._renderer is not None:
+            self._renderer.draw(f"subgoal", CircleDrawing(subgoal, 0.05, (0, 0, 255)))
+
+        step_cnt = 0
+        has_collision = False
+        subgoal_reached = False
+        while True:
+            control, info = self._controller.step(robot_state, self._ped_tracker.get_predictions())
+            if "mpc_traj" in info:
+                self._renderer.draw(f"mpc_traj", CircleDrawing(info["mpc_traj"], 0.04, (209, 133, 128)))
+            has_collision = self._step_end2end(control)
+            if has_collision:
+                return has_collision, subgoal_reached
+            robot_state = self._sim.current_state.world.robot.pose
+            subgoal_reached = np.linalg.norm(robot_state[:2] - subgoal) - ROBOT_RADIUS < self._subgoal_reach_threshold
+            if subgoal_reached:
+                return has_collision, subgoal_reached
+            step_cnt += 1
+            if step_cnt >= self._max_subgoal_steps:
+                break
+
+        return has_collision, subgoal_reached
+
+    def step(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
+        action = self._action_space_config.get_action(action)
+
+        if self._controller is None:
+            has_collision = self._step_end2end(action)
+        else:
+            has_collision, subgoal_reached = self._step_subgoal(action)
 
         self._step_cnt += 1
         truncated = (self._step_cnt >= self._max_steps) and not has_collision
@@ -106,6 +162,10 @@ class PyMiniSimWrap:
             else self._curriculum.get_eval_problem_sampler().sample()
         self._goal_reach_threshold = problem.goal_reach_threshold
         self._max_steps = problem.max_steps
+        if self._controller is not None:
+            assert problem.subgoal_reach_threshold is not None, "Subgoal reach threshold must be set in subgoal mode"
+        self._subgoal_reach_threshold = problem.subgoal_reach_threshold
+        self._max_subgoal_steps = problem.max_subgoal_steps or np.inf
 
         agents_sample = self._curriculum.get_agents_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_agents_sampler().sample()
@@ -164,16 +224,42 @@ class PyMiniSimWrap:
 
         self._step_cnt = 0
 
-    def draw(self, drawing_id: str, drawing: AbstractDrawing):
-        if self._renderer is not None:
-            self._renderer.draw(drawing_id, drawing)
-
-    def clear_drawing(self, drawing_id: str):
-        if self._renderer is not None:
-            self._renderer.clear_drawings([drawing_id])
+        self._ped_tracker.reset()
+        self._ped_tracker.update(self._get_detections())
+        self._draw_predictions()
 
     def enable_render(self):
         self._render = True
+
+    def _draw_predictions(self):
+        if self._renderer is None:
+            return
+
+        predictions = self._ped_tracker.get_predictions()
+        if len(predictions) > 0:
+            pred_traj = np.concatenate([v[0].reshape((-1, 2)) for v in predictions.values()], axis=0)
+            pred_covs = np.concatenate([v[1].reshape((-1, 2, 2)) for v in predictions.values()], axis=0)
+            self._renderer.draw(f"pred_traj", CircleDrawing(pred_traj, 0.05, (173, 153, 121)))
+            self._renderer.draw(f"pred_covs", Covariance2dDrawing(pred_traj, pred_covs, (173, 153, 121), 0.05,
+                                                                  n_sigma=1))
+        else:
+            self._renderer.clear_drawings(["pred_traj", "pred_covs"])
+
+    def _get_detections(self) -> Dict[int, np.ndarray]:
+        detections = {k: np.array([v[0], v[1], 0., 0.])
+                      for k, v in self._sim.current_state.sensors["pedestrian_detector"].reading.pedestrians.items()}
+        return detections
+
+    def _subgoal_to_absolute(self, subgoal_polar: np.ndarray) -> np.ndarray:
+        x_rel_rot = subgoal_polar[0] * np.cos(subgoal_polar[1])
+        y_rel_rot = subgoal_polar[0] * np.sin(subgoal_polar[1])
+        robot_pose = self._sim.current_state.world.robot.pose
+        theta = robot_pose[2]
+        x_rel = x_rel_rot * np.cos(theta) - y_rel_rot * np.sin(theta)
+        y_rel = x_rel_rot * np.sin(theta) + y_rel_rot * np.cos(theta)
+        x_abs = x_rel + robot_pose[0]
+        y_abs = y_rel + robot_pose[1]
+        return np.array([x_abs, y_abs])
 
 
 @nip
@@ -186,23 +272,25 @@ class SocialNavGraphEnv(gym.Env):
                  ped_tracker: PedestrianTracker,
                  reward: AbstractReward,
                  peds_padding: int,
-                 is_eval: bool):
+                 is_eval: bool,
+                 rl_tracker_horizon: int,
+                 controller: Optional[AbstractController] = None):
         self._sim_wrap = PyMiniSimWrap(action_space_config,
                                        sim_config,
                                        curriculum,
-                                       is_eval)
+                                       ped_tracker,
+                                       is_eval,
+                                       controller)
         self._reward = reward
-        self._ped_tracker = ped_tracker
+        self._rl_tracker_horizon = rl_tracker_horizon
 
         self._peds_padding = peds_padding
-
-        self._previous_ped_predictions = ped_tracker.get_predictions()
 
         self.observation_space = gym.spaces.Dict({
             "peds_traj": gym.spaces.Box(
                 low=-np.inf,
                 high=np.inf,
-                shape=(self._peds_padding, ped_tracker.horizon + 1, 2),  # Current state + predictions = 1 + horizon
+                shape=(self._peds_padding, rl_tracker_horizon + 1, 2),  # Current state + predictions = 1 + horizon
                 dtype=np.float
             ),
             "peds_visibility": gym.spaces.Box(
@@ -223,19 +311,11 @@ class SocialNavGraphEnv(gym.Env):
 
     def step(self, action: np.ndarray):
         previous_robot_pose = self._sim_wrap.sim_state.world.robot.pose
-        previous_predictions = self._ped_tracker.get_predictions()
+        previous_predictions = self._sim_wrap.ped_tracker.get_predictions()
         goal = self._sim_wrap.goal
 
         collision, truncated, success = self._sim_wrap.step(action)
-        self._ped_tracker.update(self._get_detections())
         robot_pose = self._sim_wrap.sim_state.world.robot.pose
-
-        if self._sim_wrap.render_enabled:
-            current_predictions = self._ped_tracker.get_predictions()
-            for k, pred in current_predictions.items():
-                self._sim_wrap.draw(f"pred_{k}", CircleDrawing(pred[0], 0.05, (0, 0, 255)))
-            for k in set(previous_predictions.keys()).difference(set(current_predictions.keys())):
-                self._sim_wrap.clear_drawing(f"pred_{k}")
 
         reward_context = RewardContext()
         reward_context.set("goal", goal)
@@ -274,8 +354,6 @@ class SocialNavGraphEnv(gym.Env):
 
     def reset(self):
         self._sim_wrap.reset()
-        self._ped_tracker.reset()
-        self._ped_tracker.update(self._get_detections())
         observation = self._build_obs()
         return observation
 
@@ -284,11 +362,6 @@ class SocialNavGraphEnv(gym.Env):
 
     def enable_render(self):
         self._sim_wrap.enable_render()
-
-    def _get_detections(self) -> Dict[int, np.ndarray]:
-        detections = {k: np.array([v[0], v[1], 0., 0.])
-                      for k, v in self._sim_wrap.sim_state.sensors["pedestrian_detector"].reading.pedestrians.items()}
-        return detections
 
     @staticmethod
     def _build_robot_obs(robot_pose: np.ndarray, robot_vel: np.ndarray, goal: np.ndarray) -> np.ndarray:
@@ -303,12 +376,12 @@ class SocialNavGraphEnv(gym.Env):
     def _build_peds_obs(self, robot_pose: np.ndarray,
                         current_poses: Dict[int, np.ndarray], predictions: Dict[int, np.ndarray]) -> \
             Tuple[np.ndarray, np.ndarray]:
-        obs_ped_traj = np.ones((self._peds_padding, self._ped_tracker.horizon + 1, 2)) * 100.
+        obs_ped_traj = np.ones((self._peds_padding, self._rl_tracker_horizon + 1, 2)) * 100.
         obs_peds_ids = current_poses.keys()
         obs_peds_vis = np.zeros(self._peds_padding, dtype=np.bool)
         for k in obs_peds_ids:
             obs_ped_traj[k, 0, :] = current_poses[k] - robot_pose[:2]
-            obs_ped_traj[k, 1:, :] = predictions[k][0] - robot_pose[:2]
+            obs_ped_traj[k, 1:, :] = predictions[k][:self._rl_tracker_horizon, :] - robot_pose[:2]
             obs_peds_vis[k] = True
 
         # TODO: Should we make soring optional?
@@ -323,8 +396,8 @@ class SocialNavGraphEnv(gym.Env):
         goal = self._sim_wrap.goal
         robot_pose = self._sim_wrap.sim_state.world.robot.pose
         robot_vel = self._sim_wrap.sim_state.world.robot.velocity
-        current_poses = self._ped_tracker.get_current_poses()
-        predictions = {k: v[0] for k, v in self._ped_tracker.get_predictions().items()}
+        current_poses = self._sim_wrap.ped_tracker.get_current_poses()
+        predictions = {k: v[0] for k, v in self._sim_wrap.ped_tracker.get_predictions().items()}
 
         robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, robot_vel, goal)
         obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_pose, current_poses, predictions)
@@ -345,19 +418,26 @@ class SocialNavGraphEnvFactory(AbstractEnvFactory):
                  curriculum: AbstractCurriculum,
                  tracker_factory: Callable,
                  reward: AbstractReward,
-                 peds_padding: int):
+                 peds_padding: int,
+                 rl_tracker_horizon: int,
+                 controller_factory: Optional[AbstractControllerFactory] = None):
         self._action_space_config = action_space_config
         self._sim_config = sim_config
         self._curriculum = curriculum
         self._ped_tracker_factory = tracker_factory
         self._reward = reward
         self._peds_padding = peds_padding
+        self._rl_tracking_horizon = rl_tracker_horizon
+        self._controller_factory = controller_factory
 
     def __call__(self, is_eval: bool) -> SocialNavGraphEnv:
+        controller = self._controller_factory() if self._controller_factory is not None else None
         return SocialNavGraphEnv(action_space_config=self._action_space_config,
                                  sim_config=self._sim_config,
                                  curriculum=self._curriculum,
                                  ped_tracker=self._ped_tracker_factory(),
                                  reward=self._reward,
                                  peds_padding=self._peds_padding,
+                                 rl_tracker_horizon=self._rl_tracking_horizon,
+                                 controller=controller,
                                  is_eval=is_eval)

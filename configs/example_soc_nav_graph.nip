@@ -2,6 +2,7 @@ n_train_envs: 16
 env_max_steps: &env_max_steps 200
 eval_period: `40 * env_max_steps`
 eval_n_episodes: &eval_n_episodes 10
+peds_padding: &peds_padding 8
 
 
 # Environment and problem settings
@@ -9,6 +10,16 @@ action_space: &action_space !ContinuousUnicycleActionSpace
   lb: (0., -2.826)
   ub: (2., 2.826)  # 0.9 * pi
   normalize: true
+#action_space: &action_space !ContinuousPolarSubgoalActionSpace
+#  lb: (0.5, -1.74533)  # TODO: Should we just stay on place if subgoal distance is less than robot radius?
+#  ub: (3., 1.74533)  # 100 degrees
+#  normalize: true
+
+controller: &controller !DefaultMPCFactory
+  horizon: 25
+  total_peds: *peds_padding
+  lb: (0., -2.)
+  ub: (2., 2.)
 
 
 curriculum: &curriculum !SequentialCurriculum
@@ -29,6 +40,8 @@ curriculum: &curriculum !SequentialCurriculum
       detector_fov: 360.
       goal_reach_threshold: 0.1
       max_steps: 100
+      subgoal_reach_threshold: 0.1
+      max_subgoal_steps: 20
     - !RandomProblemSampler
       ped_model: "hsfm"
       robot_visible: false
@@ -36,6 +49,8 @@ curriculum: &curriculum !SequentialCurriculum
       detector_fov: 360.
       goal_reach_threshold: 0.1
       max_steps: 200
+      subgoal_reach_threshold: 0.1
+      max_subgoal_steps: 50
   stages:
     - ("no_ped", 1.)
     - ("random_ped", 0.8)
@@ -61,14 +76,16 @@ reward: &reward !BranchReward
 train_env_factory: !SocialNavGraphEnvFactory
   action_space_config: *action_space
   sim_config: !SimConfig
-    render: false
+    render: true
   curriculum: *curriculum
   tracker_factory: !CovarianceNetTrackerFactory
-    horizon: 5
-    max_ghost_tracking_time: 3
+    horizon: 25
+    max_ghost_tracking_time: 8
     device: "cuda"
+  rl_tracker_horizon: 5
   reward: *reward
-  peds_padding: 8
+  peds_padding: *peds_padding
+#  controller_factory: *controller
 
 
 # RL model

@@ -11,30 +11,38 @@ from lib.utils.sampling import get_or_sample_uniform, get_or_sample_bool, get_or
 
 
 class AbstractActionSpaceConfig(ABC):
+    TYPE_END2END = "end2end"
+    TYPE_SUBGOAL = "subgoal"
 
-    def __init__(self, action_space: gym.spaces.Space):
+    def __init__(self, action_space: gym.spaces.Space, action_type: str):
+        action_types = [AbstractActionSpaceConfig.TYPE_END2END, AbstractActionSpaceConfig.TYPE_SUBGOAL]
+        assert action_type in action_types, f"action_type must be in {action_types}, {action_type} is given"
         self._action_space = action_space
+        self._action_type = action_type
 
     @abstractmethod
-    def get_control(self, policy_action: np.ndarray) -> np.ndarray:
+    def get_action(self, policy_action: np.ndarray) -> np.ndarray:
         raise NotImplementedError()
 
     @property
     def action_space(self) -> gym.spaces.Space:
         return self._action_space
 
+    @property
+    def action_type(self) -> str:
+        return self._action_type
 
-@nip
-class ContinuousUnicycleActionSpace(AbstractActionSpaceConfig):
+
+class ContinuousActionSpace(AbstractActionSpaceConfig):
 
     def __init__(self,
-                 lb: Tuple[float, float],
-                 ub: Tuple[float, float],
-                 normalize: bool):
-        assert len(lb) == 2 and len(ub) == 2, f"Size of the lb and ub must be 2, {len(lb)} and {len(ub)} are given"
-        lb = np.array(lb)
-        ub = np.array(ub)
-        shape = (2,)
+                 lb: np.ndarray,
+                 ub: np.ndarray,
+                 normalize: bool,
+                 action_type: str):
+        assert lb.shape == ub.shape and len(lb.shape) == 1, f"ub and lb must be equal shape 1D arrays, " \
+                                                            f"got {lb.shape} and {ub.shape}"
+        shape = (lb.shape[0],)
         if normalize:
             action_space = gym.spaces.Box(low=-np.ones_like(lb),
                                           high=np.ones_like(ub),
@@ -45,20 +53,53 @@ class ContinuousUnicycleActionSpace(AbstractActionSpaceConfig):
                                           high=ub.copy(),
                                           shape=shape,
                                           dtype=np.float32)
-        super(ContinuousUnicycleActionSpace, self).__init__(action_space)
+        super(ContinuousActionSpace, self).__init__(action_space, action_type)
         self._lb = np.array(lb)
         self._ub = np.array(ub)
         self._normalize = normalize
 
-    def get_control(self, policy_action: np.ndarray) -> np.ndarray:
+    def get_action(self, policy_action: np.ndarray) -> np.ndarray:
         action = np.clip(policy_action, self.action_space.low, self.action_space.high)
         if self._normalize:
             action = unnormalize(action, self._lb, self._ub)
         return action
 
 
+class MultiDiscreteActionSpace(AbstractActionSpaceConfig):
+
+    def __init__(self,
+                 lb: np.ndarray,
+                 ub: np.ndarray,
+                 grid: np.ndarray,
+                 action_type: str):
+        assert lb.shape == ub.shape and len(lb.shape) == 1, f"ub and lb must be equal shape 1D arrays, " \
+                                                            f"got {lb.shape} and {ub.shape}"
+        assert grid.shape == lb.shape, f"Shape of the grid must be equal to the shape of " \
+                                       f"bounds {lb.shape}, {grid.shape} is given"
+        action_space = gym.spaces.MultiDiscrete(grid.tolist())
+        super(MultiDiscreteActionSpace, self).__init__(action_space, action_type)
+        self._grid = [np.linspace(lb[i], ub[i], grid[i]) for i in range(grid.shape[0])]
+
+    def get_action(self, policy_action: np.ndarray) -> np.ndarray:
+        return np.array([self._grid[i][policy_action[i]] for i in range(policy_action.shape[0])])
+
+
 @nip
-class MultiDiscreteUnicycleActionSpace(AbstractActionSpaceConfig):
+class ContinuousUnicycleActionSpace(ContinuousActionSpace):
+
+    def __init__(self,
+                 lb: Tuple[float, float],
+                 ub: Tuple[float, float],
+                 normalize: bool):
+        assert len(lb) == 2 and len(ub) == 2, f"Size of the lb and ub must be 2, {len(lb)} and {len(ub)} are given"
+        super(ContinuousUnicycleActionSpace, self).__init__(lb=np.array(lb),
+                                                            ub=np.array(ub),
+                                                            normalize=normalize,
+                                                            action_type=AbstractActionSpaceConfig.TYPE_END2END)
+
+
+@nip
+class MultiDiscreteUnicycleActionSpace(MultiDiscreteActionSpace):
 
     def __init__(self,
                  lb: Tuple[float, float],
@@ -66,19 +107,43 @@ class MultiDiscreteUnicycleActionSpace(AbstractActionSpaceConfig):
                  n_linear: int,
                  n_angular: int):
         assert len(lb) == 2 and len(ub) == 2, f"Size of the lb and ub must be 2, {len(lb)} and {len(ub)} are given"
-        assert n_linear >= 2 and n_angular >= 2 and isinstance(n_linear, int) and isinstance(n_angular, int),\
+        assert n_linear >= 2 and n_angular >= 2 and isinstance(n_linear, int) and isinstance(n_angular, int), \
             f"n_linear and n_angular must be integers and >= 2"
-        lb = np.array(lb)
-        ub = np.array(ub)
-        action_space = gym.spaces.MultiDiscrete([n_linear, n_angular])
-        super(MultiDiscreteUnicycleActionSpace, self).__init__(action_space)
+        super(MultiDiscreteUnicycleActionSpace, self).__init__(lb=np.array(lb),
+                                                               ub=np.array(ub),
+                                                               grid=np.array([n_linear, n_angular]),
+                                                               action_type=AbstractActionSpaceConfig.TYPE_END2END)
 
-        self._linear_values = np.linspace(lb[0], ub[0], n_linear)
-        self._angular_values = np.linspace(lb[1], ub[1], n_angular)
 
-    def get_control(self, policy_action: np.ndarray) -> np.ndarray:
-        return np.array([self._linear_values[policy_action[0]],
-                         self._angular_values[policy_action[1]]])
+@nip
+class ContinuousPolarSubgoalActionSpace(ContinuousActionSpace):
+
+    def __init__(self,
+                 lb: Tuple[float, float],
+                 ub: Tuple[float, float],
+                 normalize: bool):
+        assert len(lb) == 2 and len(ub) == 2, f"Size of the lb and ub must be 2, {len(lb)} and {len(ub)} are given"
+        super(ContinuousPolarSubgoalActionSpace, self).__init__(lb=np.array(lb),
+                                                                ub=np.array(ub),
+                                                                normalize=normalize,
+                                                                action_type=AbstractActionSpaceConfig.TYPE_SUBGOAL)
+
+
+@nip
+class MultiPolarSubgoalActionSpace(MultiDiscreteActionSpace):
+
+    def __init__(self,
+                 lb: Tuple[float, float],
+                 ub: Tuple[float, float],
+                 n_radial: int,
+                 n_angular: int):
+        assert len(lb) == 2 and len(ub) == 2, f"Size of the lb and ub must be 2, {len(lb)} and {len(ub)} are given"
+        assert n_radial >= 2 and n_angular >= 2 and isinstance(n_radial, int) and isinstance(n_angular, int), \
+            f"n_radial and n_angular must be integers and >= 2"
+        super(MultiPolarSubgoalActionSpace, self).__init__(lb=np.array(lb),
+                                                           ub=np.array(ub),
+                                                           grid=np.array([n_radial, n_angular]),
+                                                           action_type=AbstractActionSpaceConfig.TYPE_SUBGOAL)
 
 
 @dataclass
@@ -90,6 +155,8 @@ class ProblemConfig:
     detector_fov: float
     goal_reach_threshold: float
     max_steps: int
+    subgoal_reach_threshold: Optional[float] = None
+    max_subgoal_steps: Optional[int] = None
 
 
 @dataclass
@@ -117,7 +184,9 @@ class RandomProblemSampler(AbstractProblemConfigSampler):
                  detector_range: Union[float, Tuple[float, float]] = 5,
                  detector_fov: Union[float, Tuple[float, float]] = 360.,
                  goal_reach_threshold: float = 0.1,
-                 max_steps: int = 300):
+                 max_steps: int = 300,
+                 subgoal_reach_threshold: Optional[float] = 0.1,
+                 max_subgoal_steps: Optional[int] = None):
         if isinstance(robot_visible, str):
             assert robot_visible == "random", f"Only 'random' string is allowed, {robot_visible} is given"
         super(RandomProblemSampler, self).__init__()
@@ -127,6 +196,8 @@ class RandomProblemSampler(AbstractProblemConfigSampler):
         self._detector_fov = detector_fov
         self._goal_reach_threshold = goal_reach_threshold
         self._max_steps = max_steps
+        self._subgoal_reach_threshold = subgoal_reach_threshold
+        self._max_subgoal_steps = max_subgoal_steps
 
     def sample(self) -> ProblemConfig:
         return ProblemConfig(
@@ -135,7 +206,9 @@ class RandomProblemSampler(AbstractProblemConfigSampler):
             detector_range=get_or_sample_uniform(self._detector_range),
             detector_fov=get_or_sample_uniform(self._detector_fov),
             goal_reach_threshold=self._goal_reach_threshold,
-            max_steps=self._max_steps
+            max_steps=self._max_steps,
+            subgoal_reach_threshold=self._subgoal_reach_threshold,
+            max_subgoal_steps=self._max_subgoal_steps
         )
 
 
