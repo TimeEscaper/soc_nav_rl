@@ -24,24 +24,24 @@ controller: &controller !DefaultMPCFactory
 
 curriculum: &curriculum !SequentialCurriculum
   agents_samplers:
-#    - !RobotOnlySampler
-#      sampling_square: (12, 12)
-#      min_robot_goal_distance: 5.
+    - !RobotOnlySampler
+      sampling_square: (12, 12)
+      min_robot_goal_distance: 5.
     - !RandomAgentsSampler
       n_peds: (4, 8)
       sampling_square: (12, 12)
       min_robot_goal_distance: 5.
       ped_linear_vels: (1., 2.3)
   problem_samplers:
-#    - !RandomProblemSampler
-#      ped_model: "hsfm"
-#      robot_visible: false
-#      detector_range: 5.
-#      detector_fov: 360.
-#      goal_reach_threshold: 0.1
-#      max_steps: 100
-#      subgoal_reach_threshold: 0.1
-#      max_subgoal_steps: 20
+    - !RandomProblemSampler
+      ped_model: "hsfm"
+      robot_visible: false
+      detector_range: 5.
+      detector_fov: 360.
+      goal_reach_threshold: 0.1
+      max_steps: 100
+      subgoal_reach_threshold: 0.1
+      max_subgoal_steps: 20
     - !RandomProblemSampler
       ped_model: "hsfm"
       robot_visible: false
@@ -52,6 +52,7 @@ curriculum: &curriculum !SequentialCurriculum
       subgoal_reach_threshold: 0.1
       max_subgoal_steps: 50
   stages:
+    - ("no_ped", 1.)
     - ("random_ped", 0.8)
   n_eval_episodes: `eval_n_episodes + 1`  # Hack for the stable-baselines3 evaluation pipeline
 
@@ -75,7 +76,7 @@ reward: &reward !BranchReward
 train_env_factory: !End2EndPredictionEnvFactory
   action_space_config: *action_space
   sim_config: !SimConfig
-    render: true
+    render: false
   curriculum: *curriculum
   tracker_factory: !CovarianceNetTrackerFactory
     horizon: 25

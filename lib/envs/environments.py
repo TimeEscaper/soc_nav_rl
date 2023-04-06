@@ -182,13 +182,19 @@ class PyMiniSimBaseEnv:
             "robot_pose": robot_pose
         }
 
-    def draw_predictions(self, means: np.ndarray, covs: np.ndarray):
-        if self._renderer is not None:
-            self._renderer.draw("pred_means",
-                                CircleDrawing(means.reshape((-1, 2)), 0.05, (173, 153, 121)))
-            self._renderer.draw("pred_covs",
-                                Covariance2dDrawing(means.reshape((-1, 2)), covs.reshape((-1, 2, 2)),
-                                                    (173, 153, 121), 0.05))
+    def draw_predictions(self, means: np.ndarray, covs: np.ndarray, pred_mask: np.ndarray):
+        if self._renderer is None:
+            return
+        if not pred_mask.any():
+            self._renderer.clear_drawings(["pred_means", "pred_covs"])
+            return
+        means = means[np.where(pred_mask)]
+        covs = covs[np.where(pred_mask)]
+        self._renderer.draw("pred_means",
+                            CircleDrawing(means.reshape((-1, 2)), 0.05, (173, 153, 121)))
+        self._renderer.draw("pred_covs",
+                            Covariance2dDrawing(means.reshape((-1, 2)), covs.reshape((-1, 2, 2)),
+                                                (173, 153, 121), 0.05))
 
 
 @nip
@@ -274,7 +280,7 @@ class End2EndSocialEnv(gym.Env):
         reward_context.set("previous_robot_pose", self._base_env.sim_state.world.robot.pose)
         reward_context.set("previous_ped_predictions", (pred_means, pred_covs, pred_mask))
 
-        self._base_env.draw_predictions(pred_means, pred_covs)
+        self._base_env.draw_predictions(pred_means, pred_covs, pred_mask)
         collision, success = self._base_env.step(action)
         self._step_cnt += 1
         truncated = (self._step_cnt >= self._max_steps) and not collision
@@ -318,6 +324,7 @@ class End2EndSocialEnv(gym.Env):
         agents = self._curriculum.get_agents_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_agents_sampler().sample()
         self._max_steps = problem.max_steps
+        self._step_cnt = 0
         self._base_env.reset(problem, agents)
         return self._base_env.build_observation()
 
@@ -365,11 +372,14 @@ class TrackerEnvWrapper(VecEnv):
         self._rl_tracker_horizon = rl_tracker_horizon
 
         self.actions = None
+        self._previous_obs = None
 
     def reset(self):
         base_obs = self._env.reset()
-        self._update_trackers(base_obs, reset=False)
-        return self._build_obs(base_obs)
+        self._update_trackers(base_obs, reset=sorted(range(len(self._trackers))))
+        obs = self._build_obs(base_obs)
+        self._previous_obs = obs
+        return obs
 
     def render(self, mode="human"):
         pass
@@ -378,7 +388,7 @@ class TrackerEnvWrapper(VecEnv):
         actions = []
         for tracker in self._trackers:
             pred_means = np.ones((self._peds_padding, tracker.horizon, 2)) * 1000.
-            pred_covs = np.tile(np.eye(2), (self._peds_padding, tracker.horizon, 1, 1))
+            pred_covs = np.tile(np.eye(2), (self._peds_padding, tracker.horizon, 1, 1)) * 0.001
             pred_mask = np.zeros((self._peds_padding,), dtype=np.bool)
             for k, v in tracker.get_predictions().items():
                 pred_means[k, :, :] = v[0]
@@ -391,9 +401,9 @@ class TrackerEnvWrapper(VecEnv):
             })
         return actions
 
-    def _update_trackers(self, base_obs: Dict[str, np.ndarray], reset=False):
+    def _update_trackers(self, base_obs: Dict[str, np.ndarray], reset: Optional[List[int]] = None):
         for i, tracker in enumerate(self._trackers):
-            if reset:
+            if reset is not None and i in reset:
                 tracker.reset()
             ped_detections = base_obs["ped_detections"][i]
             ped_ids = base_obs["ped_ids"][i]
@@ -442,11 +452,19 @@ class TrackerEnvWrapper(VecEnv):
         for i, action_dict in enumerate(actions_list):
             action_dict["action"] = self.actions[i]
 
-        base_obs, reward, done, info = self._env.step(actions_list)
-        self._update_trackers(base_obs, reset=False)
-        obs = self._build_obs(base_obs)
+        base_obs, rewards, dones, infos = self._env.step(actions_list)
 
-        return obs, reward, done, info
+        trackers_to_reset = []
+        for i in range(len(dones)):
+            if dones[i]:
+                trackers_to_reset.append(i)
+                infos[i]["terminal_observation"] = {k: v[i] for k, v in self._previous_obs.items()}
+
+        self._update_trackers(base_obs, reset=trackers_to_reset)
+        obs = self._build_obs(base_obs)
+        self._previous_obs = obs
+
+        return obs, rewards, dones, infos
 
     def close(self) -> None:
         self._env.close()
@@ -486,7 +504,7 @@ class End2EndPredictionEnvFactory(AbstractEnvFactory):
         self._peds_padding = peds_padding
         self._rl_tracker_horizon = rl_tracker_horizon
 
-    def __call__(self, n_envs: int, is_eval: bool) -> gym.Env:
+    def __call__(self, n_envs: int, is_eval: bool) -> VecEnv:
         factory = partial(self._create_env, is_eval=is_eval)
         subproc_env = SubprocVecEnv([factory for _ in range(n_envs)])
         return TrackerEnvWrapper(env=subproc_env,

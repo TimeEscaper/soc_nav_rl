@@ -42,26 +42,25 @@ def _train(output_dir: str,
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
 
     train_env = train_env_factory(n_envs=n_train_envs, is_eval=False)
-    obs = train_env.reset()
 
-    # eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else
-    #                                   train_env_factory(n_envs=1, is_eval=True),
-    #                                   curriculum,
-    #                                   n_eval_episodes=eval_n_episodes,
-    #                                   logger=logger))
+    eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else
+                                      train_env_factory(n_envs=1, is_eval=True),
+                                      curriculum,
+                                      n_eval_episodes=eval_n_episodes,
+                                      logger=logger))
 
     output_dir.mkdir(parents=True)
     tensorboard_dir = output_dir / "tensorboard"
     config_path = output_dir / "config.yaml"
     nip.dump(config_path, config)
 
-    # eval_callback = CustomEvalCallback(eval_env=eval_env,
-    #                                    curriculum=curriculum,
-    #                                    n_eval_episodes=eval_n_episodes,
-    #                                    eval_freq=eval_period,
-    #                                    best_model_save_path=str(output_dir),
-    #                                    deterministic=True,
-    #                                    verbose=1)
+    eval_callback = CustomEvalCallback(eval_env=eval_env,
+                                       curriculum=curriculum,
+                                       n_eval_episodes=eval_n_episodes,
+                                       eval_freq=eval_period,
+                                       best_model_save_path=str(output_dir),
+                                       deterministic=True,
+                                       verbose=1)
 
     rl_model_params = rl_model_params or {}
     if feature_extractor is not None:
@@ -91,7 +90,7 @@ def _train(output_dir: str,
     logger.log("experiment_id", str(output_dir.name))
     logger.log("seed", str(seed))
     logger.upload_config(config_path)
-    rl_model.learn(int(1e9)) # callback=eval_callback)
+    rl_model.learn(int(1e9), callback=eval_callback)
 
     train_env.close()
     logger.close()
