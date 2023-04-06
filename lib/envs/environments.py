@@ -109,7 +109,7 @@ class PyMiniSimWrap:
         self._draw_predictions()
         return has_collision
 
-    def _step_subgoal(self, action: np.ndarray) -> Tuple[bool, bool]:
+    def _step_subgoal(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
         subgoal = self._subgoal_to_absolute(action)
         robot_state = self._sim.current_state.world.robot.pose
         self._controller.set_goal(state=robot_state, goal=subgoal)
@@ -120,30 +120,37 @@ class PyMiniSimWrap:
         step_cnt = 0
         has_collision = False
         subgoal_reached = False
+        goal_reached = False
         while True:
             control, info = self._controller.step(robot_state, self._ped_tracker.get_predictions())
             if "mpc_traj" in info and self._renderer is not None:
                 self._renderer.draw(f"mpc_traj", CircleDrawing(info["mpc_traj"], 0.04, (209, 133, 128)))
             has_collision = self._step_end2end(control)
             if has_collision:
-                return has_collision, subgoal_reached
+                return has_collision, subgoal_reached, goal_reached
             robot_state = self._sim.current_state.world.robot.pose
             subgoal_reached = np.linalg.norm(robot_state[:2] - subgoal) - ROBOT_RADIUS < self._subgoal_reach_threshold
+            goal_reached = np.linalg.norm(
+                robot_state[:2] - self._robot_goal) - ROBOT_RADIUS < self._goal_reach_threshold
+            if goal_reached:
+                return has_collision, subgoal_reached, goal_reached
             if subgoal_reached:
-                return has_collision, subgoal_reached
+                return has_collision, subgoal_reached, goal_reached
             step_cnt += 1
             if step_cnt >= self._max_subgoal_steps:
                 break
 
-        return has_collision, subgoal_reached
+        return has_collision, subgoal_reached, goal_reached
 
     def step(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
         action = self._action_space_config.get_action(action)
 
         if self._controller is None:
             has_collision = self._step_end2end(action)
+            goal_reached = np.linalg.norm(self._sim.current_state.world.robot.pose[:2] -
+                                          self._robot_goal) - ROBOT_RADIUS < self._goal_reach_threshold
         else:
-            has_collision, subgoal_reached = self._step_subgoal(action)
+            has_collision, subgoal_reached, goal_reached = self._step_subgoal(action)
 
         self._step_cnt += 1
         truncated = (self._step_cnt >= self._max_steps) and not has_collision
@@ -151,9 +158,7 @@ class PyMiniSimWrap:
         if has_collision or truncated:
             success = False
         else:
-            success = np.linalg.norm(
-                self._sim.current_state.world.robot.pose[:2] - self._robot_goal) \
-                      - ROBOT_RADIUS < self._goal_reach_threshold
+            success = goal_reached
 
         return has_collision, truncated, success
 
