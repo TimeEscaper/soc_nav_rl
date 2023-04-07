@@ -116,13 +116,15 @@ class AngularVelocityPenalty(AbstractReward):
 @nip
 class BasicPredictionPenalty(AbstractReward):
 
-    def __init__(self, factor: float = 20.):
-        assert factor >= 0., "Coefficient must be positive (minus sign will be added automatically in the class)"
+    def __init__(self, factor: float = 20., mode: str = "previous"):
+        assert factor >= 0., "Factor must be positive (minus sign will be added automatically in the class)"
+        assert mode in ["previous", "next"], f"'previous' and 'next' modes available, {mode} is given"
         self._factor = -factor
+        self._context_key = "previous_ped_predictions" if mode == "previous" else "next_ped_predictions"
 
     def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
         robot_position = context.get("robot_pose")[:2]
-        predictions = context.get("previous_ped_predictions")
+        predictions = context.get(self._context_key)
 
         reward = 0.
         if len(predictions) != 0:
@@ -142,5 +144,21 @@ class BasicPredictionPenalty(AbstractReward):
                 reward = min_reward
 
         return reward, {"prediction_penalty": reward}
-        # reward = self._coefficient * abs(context.get("robot_velocity")[2])
-        # return reward, {"angular_velocity_penalty": reward}
+
+
+@nip
+class DiscomfortPenalty(AbstractReward):
+
+    def __init__(self, coefficient: float = 1., discomfort_dist: float = 0.3):
+        assert coefficient >= 0., "Coefficient must be positive"
+        assert discomfort_dist > 0., f"Discomfort distance must be > 0., {discomfort_dist} is given"
+        self._coefficient = coefficient
+        self._discomfort_dist = discomfort_dist
+
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
+        separation = context.get("separation")
+        if not np.isinf(separation) and separation < self._discomfort_dist:
+            reward = self._coefficient * (-self._discomfort_dist / 2. + separation / 2.)
+        else:
+            reward = 0.
+        return reward, {"discomfort_penalty": reward}

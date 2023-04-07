@@ -96,9 +96,10 @@ class PyMiniSimWrap:
     def ped_tracker(self) -> PedestrianTracker:
         return self._ped_tracker
 
-    def _step_end2end(self, action: np.ndarray) -> bool:
+    def _step_end2end(self, action: np.ndarray) -> Tuple[bool, float]:
         hold_time = 0.
         has_collision = False
+        min_separation_distance = np.inf
         while hold_time < self._sim_config.policy_dt:
             self._sim.step(action)
             hold_time += self._sim_config.sim_dt
@@ -106,13 +107,24 @@ class PyMiniSimWrap:
                 self._renderer.render()
             collisions = self._sim.current_state.world.robot_to_pedestrians_collisions
             has_collision = collisions is not None and len(collisions) > 0
+
+            robot_position = self._sim.current_state.world.robot.pose[:2]
+            if self._sim.current_state.world.pedestrians is not None:
+                ped_positions = np.array([v[:2] for v in self._sim.current_state.world.pedestrians.poses.values()])
+                if ped_positions.shape[0] > 0:
+                    separation = np.min(
+                        np.linalg.norm(robot_position - ped_positions, axis=1)) - ROBOT_RADIUS - PEDESTRIAN_RADIUS
+                    if separation < min_separation_distance:
+                        min_separation_distance = separation
+
             if has_collision:
                 break
+
         self._ped_tracker.update(self._get_detections())
         self._draw_predictions()
-        return has_collision
+        return has_collision, min_separation_distance
 
-    def _step_subgoal(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
+    def _step_subgoal(self, action: np.ndarray) -> Tuple[bool, bool, bool, float]:
         subgoal = self._subgoal_to_absolute(action)
         robot_state = self._sim.current_state.world.robot.pose
         self._controller.set_goal(state=robot_state, goal=subgoal)
@@ -124,36 +136,40 @@ class PyMiniSimWrap:
         has_collision = False
         subgoal_reached = False
         goal_reached = False
+        min_separation_distance = np.inf
         while True:
             control, info = self._controller.step(robot_state, self._ped_tracker.get_predictions())
             if "mpc_traj" in info and self._renderer is not None:
                 self._renderer.draw(f"mpc_traj", CircleDrawing(info["mpc_traj"], 0.04, (209, 133, 128)))
-            has_collision = self._step_end2end(control)
+            has_collision, separation = self._step_end2end(control)
+            if separation < min_separation_distance:
+                min_separation_distance = separation
+
             if has_collision:
-                return has_collision, subgoal_reached, goal_reached
+                return has_collision, subgoal_reached, goal_reached, min_separation_distance
             robot_state = self._sim.current_state.world.robot.pose
             subgoal_reached = np.linalg.norm(robot_state[:2] - subgoal) - ROBOT_RADIUS < self._subgoal_reach_threshold
             goal_reached = np.linalg.norm(
                 robot_state[:2] - self._robot_goal) - ROBOT_RADIUS < self._goal_reach_threshold
             if goal_reached:
-                return has_collision, subgoal_reached, goal_reached
+                return has_collision, subgoal_reached, goal_reached, min_separation_distance
             if subgoal_reached:
-                return has_collision, subgoal_reached, goal_reached
+                return has_collision, subgoal_reached, goal_reached, min_separation_distance
             step_cnt += 1
             if step_cnt >= self._max_subgoal_steps:
                 break
 
-        return has_collision, subgoal_reached, goal_reached
+        return has_collision, subgoal_reached, goal_reached, min_separation_distance
 
-    def step(self, action: np.ndarray) -> Tuple[bool, bool, bool]:
+    def step(self, action: np.ndarray) -> Tuple[bool, bool, bool, float]:
         action = self._action_space_config.get_action(action)
 
         if self._controller is None:
-            has_collision = self._step_end2end(action)
+            has_collision, min_separation_distance = self._step_end2end(action)
             goal_reached = np.linalg.norm(self._sim.current_state.world.robot.pose[:2] -
                                           self._robot_goal) - ROBOT_RADIUS < self._goal_reach_threshold
         else:
-            has_collision, subgoal_reached, goal_reached = self._step_subgoal(action)
+            has_collision, subgoal_reached, goal_reached, min_separation_distance = self._step_subgoal(action)
 
         self._step_cnt += 1
         truncated = (self._step_cnt >= self._max_steps) and not has_collision
@@ -163,11 +179,12 @@ class PyMiniSimWrap:
         else:
             success = goal_reached
 
-        return has_collision, truncated, success
+        return has_collision, truncated, success, min_separation_distance
 
     def reset(self):
         problem = self._curriculum.get_problem_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_problem_sampler().sample()
+        print(f"Resetting, is_eval: {self._is_eval}, stage: {self._curriculum.get_current_stage()[0]}")
         self._goal_reach_threshold = problem.goal_reach_threshold
         self._max_steps = problem.max_steps
         if self._controller is not None:
@@ -194,8 +211,10 @@ class PyMiniSimWrap:
                 ped_model = HeadedSocialForceModelPolicy(waypoint_tracker=waypoint_tracker,
                                                          n_pedestrians=agents_sample.n_peds,
                                                          initial_poses=agents_sample.ped_initial_poses,
-                                                         robot_visible=problem.robot_visible)
+                                                         robot_visible=problem.robot_visible,
+                                                         pedestrian_linear_velocity_magnitude=agents_sample.ped_linear_vels)
             elif problem.ped_model == "orca":
+                # TODO: Implement velocities in ORCA
                 ped_model = OptimalReciprocalCollisionAvoidance(dt=self._sim_config.sim_dt,
                                                                 waypoint_tracker=waypoint_tracker,
                                                                 n_pedestrians=agents_sample.n_peds,
@@ -325,8 +344,9 @@ class SocialNavGraphEnv(gym.Env):
         previous_predictions = self._sim_wrap.ped_tracker.get_predictions()
         goal = self._sim_wrap.goal
 
-        collision, truncated, success = self._sim_wrap.step(action)
+        collision, truncated, success, separation = self._sim_wrap.step(action)
         robot_pose = self._sim_wrap.sim_state.world.robot.pose
+        next_predictions = self._sim_wrap.ped_tracker.get_predictions()
 
         reward_context = RewardContext()
         reward_context.set("goal", goal)
@@ -334,6 +354,8 @@ class SocialNavGraphEnv(gym.Env):
         reward_context.set("robot_velocity", self._sim_wrap.sim_state.world.robot.velocity)
         reward_context.set("previous_robot_pose", previous_robot_pose)
         reward_context.set("previous_ped_predictions", previous_predictions)
+        reward_context.set("next_ped_predictions", next_predictions)
+        reward_context.set("separation", separation)
 
         # https://stable-baselines3.readthedocs.io/en/master/common/logger.html#eval
         if collision:

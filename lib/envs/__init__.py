@@ -4,7 +4,7 @@ from .sim_config_samplers import SimConfig, ProblemConfig, AbstractActionSpaceCo
     MultiDiscreteUnicycleActionSpace, AbstractProblemConfigSampler, RandomProblemSampler, ProxyFixedProblemSampler, \
     ContinuousPolarSubgoalActionSpace, MultiPolarSubgoalActionSpace
 from .rewards import RewardContext, AbstractReward, CompositeReward, BranchReward, PotentialGoalReward, \
-    AngularVelocityPenalty, BasicPredictionPenalty
+    AngularVelocityPenalty, BasicPredictionPenalty, DiscomfortPenalty
 from .environments import AbstractEnvFactory, SocialNavGraphEnv, SocialNavGraphEnvFactory
 from .wrappers import EvalEnvWrapper
 from .curriculum import AbstractCurriculum, DummyCurriculum, SequentialCurriculum
