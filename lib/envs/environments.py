@@ -69,6 +69,9 @@ class PyMiniSimWrap:
         self._max_steps: int = None
         self._max_subgoal_steps: int = None
 
+    def update_curriculum(self):
+        self._curriculum.update_stage()
+
     @property
     def action_space(self) -> gym.spaces.Space:
         return self._action_space_config.action_space
@@ -313,6 +316,9 @@ class SocialNavGraphEnv(gym.Env):
         })
 
         self.action_space = self._sim_wrap.action_space
+
+    def update_curriculum(self):
+        self._sim_wrap.update_curriculum()
 
     def step(self, action: np.ndarray):
         previous_robot_pose = self._sim_wrap.sim_state.world.robot.pose

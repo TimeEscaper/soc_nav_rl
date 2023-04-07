@@ -1,17 +1,26 @@
 import gym
 import numpy as np
 
+from typing import Optional
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
 from lib.envs.curriculum import AbstractCurriculum
 from lib.utils import AbstractLogger
 
 
 class EvalEnvWrapper(gym.Env):
 
-    def __init__(self, env: gym.Env, curriculum: AbstractCurriculum, n_eval_episodes: int, logger: AbstractLogger):
+    def __init__(self,
+                 env: gym.Env,
+                 curriculum: AbstractCurriculum,
+                 n_eval_episodes: int,
+                 logger: AbstractLogger,
+                 train_env: Optional[SubprocVecEnv] = None):
         self._env = env
         self._curriculum = curriculum
         self._n_eval_episodes = n_eval_episodes
         self._logger = logger
+        self._train_env = train_env
         self.observation_space = env.observation_space
         self.action_space = env.action_space
 
@@ -58,6 +67,8 @@ class EvalEnvWrapper(gym.Env):
                 if threshold is not None:
                     if success_ratio >= threshold:
                         self._curriculum.update_stage()
+                        if self._train_env is not None and isinstance(self._train_env, SubprocVecEnv):
+                            self._train_env.env_method("update_curriculum")
                 current_stage, _ = self._curriculum.get_current_stage()
                 self._logger.log("stage_idx", current_stage)
 

@@ -50,7 +50,8 @@ def _train(output_dir: str,
                                       train_env_factory(is_eval=True),
                                       curriculum,
                                       n_eval_episodes=eval_n_episodes,
-                                      logger=logger))
+                                      logger=logger,
+                                      train_env=train_env))
 
     output_dir.mkdir(parents=True)
     tensorboard_dir = output_dir / "tensorboard"
