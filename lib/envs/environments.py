@@ -1,30 +1,24 @@
-import random
-import numpy as np
-import gym
-
 from abc import ABC, abstractmethod
-from typing import Dict, Union, Optional, Tuple, List, Any, Callable
-from dataclasses import dataclass
-from nip import nip
-from scipy.spatial.distance import cdist
-from lib.envs.rewards import AbstractReward, RewardContext
-from lib.envs.agents_samplers import AbstractAgentsSampler
-from lib.envs.sim_config_samplers import AbstractActionSpaceConfig, AbstractProblemConfigSampler, SimConfig, \
-    ProblemConfig
-from lib.predictors.tracker import PedestrianTracker
-from lib.utils.sampling import get_or_sample_uniform, get_or_sample_bool, get_or_sample_choice
-from lib.envs.curriculum import AbstractCurriculum
-from lib.controllers.controllers import AbstractController, AbstractControllerFactory
+from typing import Dict, Union, Optional, Tuple, Callable
 
+import gym
+import numpy as np
+from nip import nip
 from pyminisim.core import PEDESTRIAN_RADIUS, ROBOT_RADIUS
 from pyminisim.core import Simulation, SimulationState
-from pyminisim.world_map import EmptyWorld, CirclesWorld
-from pyminisim.robot import UnicycleRobotModel
 from pyminisim.pedestrians import HeadedSocialForceModelPolicy, OptimalReciprocalCollisionAvoidance, \
     RandomWaypointTracker, FixedWaypointTracker
-from pyminisim.sensors import PedestrianDetectorNoise, PedestrianDetector, PedestrianDetectorConfig, \
-    LidarSensor, LidarSensorNoise
-from pyminisim.visual import Renderer, CircleDrawing, AbstractDrawing, Covariance2dDrawing
+from pyminisim.robot import UnicycleRobotModel
+from pyminisim.sensors import PedestrianDetector, PedestrianDetectorConfig
+from pyminisim.visual import Renderer, CircleDrawing, Covariance2dDrawing
+from pyminisim.world_map import EmptyWorld
+
+from lib.controllers.controllers import AbstractController, AbstractControllerFactory
+from lib.envs.curriculum import AbstractCurriculum
+from lib.envs.rewards import AbstractReward, RewardContext
+from lib.envs.sim_config_samplers import AbstractActionSpaceConfig, SimConfig
+from lib.envs.wrappers import StackHistoryWrapper
+from lib.predictors.tracker import PedestrianTracker
 
 
 class AbstractEnvFactory(ABC):
@@ -68,6 +62,8 @@ class PyMiniSimWrap:
         self._subgoal_reach_threshold: float = None
         self._max_steps: int = None
         self._max_subgoal_steps: int = None
+
+        self._env_hash = hash(self)
 
     def update_curriculum(self):
         self._curriculum.update_stage()
@@ -182,6 +178,8 @@ class PyMiniSimWrap:
         return has_collision, truncated, success, min_separation_distance
 
     def reset(self):
+        print(f"Resetting, is_eval: {self._is_eval}, hash: {self._env_hash}")
+
         problem = self._curriculum.get_problem_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_problem_sampler().sample()
         self._goal_reach_threshold = problem.goal_reach_threshold
@@ -300,15 +298,19 @@ class SocialNavGraphEnv(gym.Env):
                  peds_padding: int,
                  is_eval: bool,
                  rl_tracker_horizon: int,
-                 controller: Optional[AbstractController] = None):
+                 controller: Optional[AbstractController] = None,
+                 obs_mode: str = "prediction"):
         self._sim_wrap = PyMiniSimWrap(action_space_config,
                                        sim_config,
                                        curriculum,
                                        ped_tracker,
                                        is_eval,
                                        controller)
+        assert obs_mode in ["prediction", "current"], f"Only 'prediction' and 'current' modes available," \
+                                                      f"{obs_mode} is given"
         self._reward = reward
         self._rl_tracker_horizon = rl_tracker_horizon
+        self._obs_mode = obs_mode
 
         self._peds_padding = peds_padding
 
@@ -316,7 +318,8 @@ class SocialNavGraphEnv(gym.Env):
             "peds_traj": gym.spaces.Box(
                 low=-np.inf,
                 high=np.inf,
-                shape=(self._peds_padding, rl_tracker_horizon + 1, 2),  # Current state + predictions = 1 + horizon
+                shape=(self._peds_padding, rl_tracker_horizon + 1, 2) if obs_mode == "prediction"
+                else (self._peds_padding, 5),  # Current state + predictions = 1 + horizon for prediction mode
                 dtype=np.float
             ),
             "peds_visibility": gym.spaces.Box(
@@ -405,8 +408,8 @@ class SocialNavGraphEnv(gym.Env):
                          robot_vel[1],
                          robot_vel[2]]).astype(np.float32)
 
-    def _build_peds_obs(self, robot_pose: np.ndarray,
-                        current_poses: Dict[int, np.ndarray], predictions: Dict[int, np.ndarray]) -> \
+    def _build_peds_obs_prediction(self, robot_pose: np.ndarray,
+                                   current_poses: Dict[int, np.ndarray], predictions: Dict[int, np.ndarray]) -> \
             Tuple[np.ndarray, np.ndarray]:
         obs_ped_traj = np.ones((self._peds_padding, self._rl_tracker_horizon + 1, 2)) * 100.
         obs_peds_ids = current_poses.keys()
@@ -424,6 +427,33 @@ class SocialNavGraphEnv(gym.Env):
 
         return obs_ped_traj, obs_peds_vis
 
+    def _build_peds_obs_current(self, robot_pose: np.ndarray,
+                                current_poses: Dict[int, np.ndarray]) -> \
+            Tuple[np.ndarray, np.ndarray]:
+        obs_peds = np.ones((self._peds_padding, 5))
+        obs_peds_ids = current_poses.keys()
+        obs_peds_vis = np.zeros(self._peds_padding, dtype=np.bool)
+        for k in range(self._peds_padding):
+            if k in obs_peds_ids:
+                obs_peds[k, :2] = current_poses[k] - robot_pose[:2]
+                obs_peds[k, 2] = PEDESTRIAN_RADIUS
+                obs_peds[k, 3] = np.linalg.norm(current_poses[k] - robot_pose[:2])
+                obs_peds[k, 4] = PEDESTRIAN_RADIUS + ROBOT_RADIUS
+                obs_peds_vis[k] = True
+            else:
+                obs_peds[k, :2] = 100. - robot_pose[:2]
+                obs_peds[k, 2] = 0.
+                obs_peds[k, 3] = np.linalg.norm(100. - robot_pose[:2])
+                obs_peds[k, 4] = 0.
+                obs_peds_vis[k] = False
+
+        # TODO: Should we make soring optional?
+        sorted_indices = np.argsort(obs_peds[:, 3])
+        obs_peds = obs_peds[sorted_indices]
+        obs_peds_vis = obs_peds_vis[sorted_indices]
+
+        return obs_peds, obs_peds_vis
+
     def _build_obs(self) -> Dict[str, np.ndarray]:
         goal = self._sim_wrap.goal
         robot_pose = self._sim_wrap.sim_state.world.robot.pose
@@ -432,7 +462,8 @@ class SocialNavGraphEnv(gym.Env):
         predictions = {k: v[0] for k, v in self._sim_wrap.ped_tracker.get_predictions().items()}
 
         robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, robot_vel, goal)
-        obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_pose, current_poses, predictions)
+        obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_pose, current_poses, predictions) \
+            if self._obs_mode == "prediction" else self._build_peds_obs_current(robot_obs, current_poses)
 
         return {
             "peds_traj": obs_ped_traj,
@@ -452,7 +483,9 @@ class SocialNavGraphEnvFactory(AbstractEnvFactory):
                  reward: AbstractReward,
                  peds_padding: int,
                  rl_tracker_horizon: int,
-                 controller_factory: Optional[AbstractControllerFactory] = None):
+                 controller_factory: Optional[AbstractControllerFactory] = None,
+                 obs_mode: str = "prediction",
+                 n_stacks: Optional[Union[int, Dict[str, int]]] = None):
         self._action_space_config = action_space_config
         self._sim_config = sim_config
         self._curriculum = curriculum
@@ -461,15 +494,21 @@ class SocialNavGraphEnvFactory(AbstractEnvFactory):
         self._peds_padding = peds_padding
         self._rl_tracking_horizon = rl_tracker_horizon
         self._controller_factory = controller_factory
+        self._obs_mode = obs_mode
+        self._n_stacks = n_stacks
 
     def __call__(self, is_eval: bool) -> SocialNavGraphEnv:
         controller = self._controller_factory() if self._controller_factory is not None else None
-        return SocialNavGraphEnv(action_space_config=self._action_space_config,
-                                 sim_config=self._sim_config,
-                                 curriculum=self._curriculum,
-                                 ped_tracker=self._ped_tracker_factory(),
-                                 reward=self._reward,
-                                 peds_padding=self._peds_padding,
-                                 rl_tracker_horizon=self._rl_tracking_horizon,
-                                 controller=controller,
-                                 is_eval=is_eval)
+        env = SocialNavGraphEnv(action_space_config=self._action_space_config,
+                                sim_config=self._sim_config,
+                                curriculum=self._curriculum,
+                                ped_tracker=self._ped_tracker_factory(),
+                                reward=self._reward,
+                                peds_padding=self._peds_padding,
+                                rl_tracker_horizon=self._rl_tracking_horizon,
+                                controller=controller,
+                                obs_mode=self._obs_mode,
+                                is_eval=is_eval)
+        if self._n_stacks is not None:
+            env = StackHistoryWrapper(env, self._n_stacks)
+        return env

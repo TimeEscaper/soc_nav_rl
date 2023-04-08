@@ -1,0 +1,130 @@
+n_train_envs: 1
+env_max_steps: &env_max_steps 200
+eval_period: `98`
+eval_n_episodes: &eval_n_episodes 2
+peds_padding: &peds_padding 8
+
+
+# Environment and problem settings
+action_space: &action_space !ContinuousPolarSubgoalActionSpace
+  lb: (1., -1.91986)
+  ub: (3., 1.91986)  # 110 degrees
+  normalize: true
+
+
+controller: &controller !DefaultMPCFactory
+  horizon: 25
+  total_peds: *peds_padding
+  lb: (0., -2.)
+  ub: (2., 2.)
+
+
+curriculum: &curriculum !SequentialCurriculum
+  agents_samplers:
+    - !RobotOnlySampler
+      sampling_square: (12, 12)
+      min_robot_goal_distance: 5.
+
+    - !CircularRobotCentralSampler
+      n_peds: (3, 5)
+      ped_circle_radius: (1.8, 3)
+      ped_linear_vels: (1., 2.3)
+
+    - !RandomAgentsSampler
+      n_peds: (4, 8)
+      sampling_square: (12, 12)
+      min_robot_goal_distance: 5.
+      ped_linear_vels: (1., 2.3)
+
+  problem_samplers:
+    - !RandomProblemSampler
+      ped_model: "hsfm"
+      robot_visible: false
+      detector_range: 5.
+      detector_fov: 360.
+      goal_reach_threshold: 0.1
+      max_steps: 10
+      subgoal_reach_threshold: 0.1
+      max_subgoal_steps: 30
+
+    - !RandomProblemSampler
+      ped_model: "hsfm"
+      robot_visible: false
+      detector_range: 5.
+      detector_fov: 360.
+      goal_reach_threshold: 0.1
+      max_steps: 50
+      subgoal_reach_threshold: 0.1
+      max_subgoal_steps: 30
+
+    - !RandomProblemSampler
+      ped_model: "hsfm"
+      robot_visible: false
+      detector_range: 5.
+      detector_fov: 360.
+      goal_reach_threshold: 0.1
+      max_steps: 70
+      subgoal_reach_threshold: 0.1
+      max_subgoal_steps: 30
+
+  stages:
+    - ("no_ped", 0.)
+    - ("circular_ped", 1.)
+    - ("random_ped", 0.8)
+
+  n_eval_episodes: `eval_n_episodes + 1`  # Hack for the stable-baselines3 evaluation pipeline
+
+
+# Reward function
+reward: &reward !BranchReward
+  success_reward: 10.
+  fail_reward: -20.
+  step_reward: !CompositeReward
+    rewards:
+      - !PotentialGoalReward
+        coefficient: 2.
+      - !DiscomfortPenalty
+        coefficient: 1.
+  truncated_is_fail: false
+
+
+# Environment
+train_env_factory: !SocialNavGraphEnvFactory
+  action_space_config: *action_space
+  sim_config: !SimConfig
+    render: true
+  curriculum: *curriculum
+  tracker_factory: !ConstantVelocityTrackerFactory
+    horizon: 25
+    max_ghost_tracking_time: 8
+  rl_tracker_horizon: 5
+  reward: *reward
+  peds_padding: *peds_padding
+  controller_factory: *controller
+  obs_mode: "current"
+  n_stacks:
+    peds_traj: 5
+    peds_visibility: 5
+
+
+# RL model
+feature_extractor: !&WindowStackExtractor
+feature_extractor_kwargs:
+  features_dim: 256
+
+rl_model: !&PPO
+rl_model_params:
+  learning_rate: 4e-5
+  gamma: 0.99
+  n_steps: 2048
+  batch_size: 128
+  n_epochs: 10
+  policy_kwargs:
+    activation_fn: "tanh"
+    net_arch:
+      pi: [256, 128, 32]
+      vf: [256, 128, 32]
+
+
+# Logging
+logger: !ConsoleLogger

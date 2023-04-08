@@ -1,7 +1,7 @@
 import gym
 import numpy as np
 
-from typing import Optional
+from typing import Optional, Union, Dict
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from lib.envs.curriculum import AbstractCurriculum
@@ -87,3 +87,69 @@ class EvalEnvWrapper(gym.Env):
 
     def render(self, mode="human"):
         self._env.render(mode)
+
+
+class StackHistoryWrapper(gym.Env):
+
+    def __init__(self,
+                 env: gym.Env,
+                 n_stacks: Union[int, Dict[str, int]]):
+        original_space = env.observation_space
+        assert isinstance(original_space, gym.spaces.Dict), \
+            f"Only dict observation space is supported in StackHistoryWrapper"
+
+        if not isinstance(n_stacks, dict):
+            n_stacks = {k: n_stacks for k in original_space.keys()}
+
+        observation_space = {}
+        for k, v in original_space.items():
+            if k in n_stacks:
+                assert isinstance(v, gym.spaces.Box), \
+                    f"Only box observation subspaces can be stacked in StackHistoryWrapper"
+                if isinstance(v.low, np.ndarray):
+                    new_low = np.stack([v.low for _ in range(n_stacks[k])], axis=0)
+                    new_high = np.stack([v.high for _ in range(n_stacks[k])], axis=0)
+                else:
+                    new_low = v.low
+                    new_high = v.high
+                observation_space[k] = gym.spaces.Box(
+                    low=new_low,
+                    high=new_high,
+                    shape=(n_stacks[k],) + v.shape,
+                    dtype=v.dtype
+                )
+            else:
+                observation_space[k] = v
+
+        self.observation_space = gym.spaces.Dict(observation_space)
+        self.action_space = env.action_space
+        self._env = env
+        self._n_stacks = n_stacks
+
+        self._obs_histories = {}
+
+    def step(self, action):
+        obs, reward, done, info = self._env.step(action)
+
+        self._obs_histories = {k: np.concatenate([v[1:], obs[k][np.newaxis]], axis=0)
+                               for k, v in self._obs_histories.items()}
+        obs.update({k: v.copy() for k, v in self._obs_histories.items()})
+
+        return obs, reward, done, info
+
+    def reset(self):
+        obs = self._env.reset()
+
+        self._obs_histories = {k: np.stack([obs[k] for _ in range(v)], axis=0) for k, v in self._n_stacks.items()}
+        obs.update({k: v.copy() for k, v in self._obs_histories.items()})
+
+        return obs
+
+    def render(self, mode="human"):
+        return self._env.render(mode)
+
+    def update_curriculum(self):
+        self._env.update_curriculum()
+
+    def enable_render(self):
+        self._env.enable_render()

@@ -1,3 +1,3 @@
 from .feature_extractors import BasicGraphExtractor, SimpleGraphExtractor, PoolingGraphExtractor, \
-    DoubleAttentionExtractor
+    DoubleAttentionExtractor, WindowStackExtractor
 from .callbacks import CustomEvalCallback

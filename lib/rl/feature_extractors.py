@@ -310,3 +310,51 @@ class DoubleAttentionExtractor(BaseFeaturesExtractor):
                                                                key_padding_mask=key_padding_mask,
                                                                need_weights=False)
         return robot_peds_emb
+
+
+@nip
+class WindowStackExtractor(BaseFeaturesExtractor):
+    NAME = "window_stack_extractor"
+
+    def __init__(self, observation_space: gym.spaces.Dict,
+                 features_dim: int = 256,
+                 activation: str = "tanh"):
+        super(WindowStackExtractor, self).__init__(observation_space, features_dim)
+        activation = get_activation(activation)
+
+        n_history, n_max_peds, ped_state_dim = observation_space["peds_traj"].shape
+        robot_state_dim = observation_space["robot_state"].shape[0]
+
+        self._no_peds_stub = nn.Parameter(torch.zeros(ped_state_dim))
+
+        self._peds_rnn = nn.GRU(input_size=n_max_peds * ped_state_dim,
+                                hidden_size=features_dim,
+                                batch_first=True)
+
+        self._joint_mlp = nn.Sequential(
+            nn.Linear(features_dim + robot_state_dim, features_dim),
+            activation(),
+            nn.Linear(features_dim, features_dim)
+        )
+
+    def forward(self, observations) -> torch.Tensor:
+        obs_peds = observations["peds_traj"]  # (n_envs, n_stack, n_max_peds, 5)
+        peds_visibility = observations["peds_visibility"]  # (n_envs, n_stack, n_max_peds)
+        robot_state = observations["robot_state"]  # (n_envs, robot_emb_dim)
+
+        obs_peds = self._transform_pedestrians(obs_peds, peds_visibility)
+
+        _, feature = self._peds_rnn(obs_peds)
+        feature = feature[0]
+        feature = torch.cat((robot_state, feature), dim=1)
+        feature = self._joint_mlp(feature)
+
+        return feature
+
+    def _transform_pedestrians(self, obs_peds: torch.Tensor, peds_visibility: torch.Tensor) -> torch.Tensor:
+        n_envs, n_stack, n_max_peds, state_dim = obs_peds.shape
+        obs_filtered = torch.ones_like(obs_peds, requires_grad=True) * obs_peds
+        peds_visibility = peds_visibility.unsqueeze(-1)
+        obs_filtered = obs_filtered * peds_visibility + torch.logical_not(peds_visibility) * self._no_peds_stub
+        obs_filtered = obs_filtered.reshape((n_envs, n_stack, n_max_peds * state_dim))
+        return obs_filtered
