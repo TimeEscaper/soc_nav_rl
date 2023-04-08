@@ -2,7 +2,8 @@ import numpy as np
 
 from typing import Dict, Optional, Tuple
 from nip import nip
-from lib.predictors.traj_predictors import AbstractTrajectoryPredictor, CovarianceNetPredictor
+from lib.predictors.traj_predictors import AbstractTrajectoryPredictor, CovarianceNetPredictor, \
+    ConstantVelocityPredictor
 
 
 _STATE_DIM = 4
@@ -248,6 +249,23 @@ class CovarianceNetTrackerFactory:
 
     def __call__(self):
         predictor = CovarianceNetPredictor(horizon=self._horizon, device=self._device)
+        tracker = PedestrianTracker(predictor=predictor,
+                                    max_ghost_tracking_time=self._max_ghost_tracking_time)
+        return tracker
+
+
+@nip
+class ConstantVelocityTrackerFactory:
+
+    def __init__(self,
+                 horizon: int,
+                 max_ghost_tracking_time: int):
+        self._horizon = horizon
+        self._max_ghost_tracking_time = max_ghost_tracking_time
+
+    def __call__(self):
+        predictor = ConstantVelocityPredictor(horizon=self._horizon,
+                                              history_length=8)
         tracker = PedestrianTracker(predictor=predictor,
                                     max_ghost_tracking_time=self._max_ghost_tracking_time)
         return tracker

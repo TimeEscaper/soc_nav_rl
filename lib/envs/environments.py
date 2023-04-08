@@ -184,7 +184,6 @@ class PyMiniSimWrap:
     def reset(self):
         problem = self._curriculum.get_problem_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_problem_sampler().sample()
-        print(f"Resetting, is_eval: {self._is_eval}, stage: {self._curriculum.get_current_stage()[0]}")
         self._goal_reach_threshold = problem.goal_reach_threshold
         self._max_steps = problem.max_steps
         if self._controller is not None:

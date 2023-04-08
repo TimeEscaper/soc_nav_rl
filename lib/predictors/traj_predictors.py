@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Tuple, Optional
 from nip import nip
 from lib.predictors.covariance_net.model import CovarianceNet
+from lib.predictors.covariance_net.cons_vel_model import batched_constant_velocity_model
 from lib.predictors.covariance_net.model_utils import get_rotation_translation_matrix
 
 
@@ -105,3 +106,19 @@ class CovarianceNetPredictor(AbstractTrajectoryPredictor):
         cov = np.matmul(inv_rotation, np.matmul(cov, inv_rotation.T))
 
         return pred, cov
+
+
+@nip
+class ConstantVelocityPredictor(AbstractTrajectoryPredictor):
+
+    def __init__(self, horizon: int, history_length: int):
+        super(ConstantVelocityPredictor, self).__init__(horizon=horizon,
+                                                        history_length=history_length)
+
+    def predict(self, joint_history: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:
+        # joint_history: (history, n_neighbours, state_dim)
+        predictions = batched_constant_velocity_model(positions=joint_history.transpose((1, 0, 2))[:, :, :2],
+                                                      current_velocity=None,
+                                                      num_future_positions=self.horizon).transpose((1, 0, 2))
+        dummy_cov = np.tile(np.eye(2) * 0.001, (self.horizon, joint_history.shape[1], 1, 1))
+        return predictions, dummy_cov
