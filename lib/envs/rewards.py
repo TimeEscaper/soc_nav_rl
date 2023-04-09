@@ -173,4 +173,4 @@ class StepPenalty(AbstractReward):
 
     def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
         reward = self._penalty
-        return reward, {"discomfort_penalty": reward}
+        return reward, {"step_penalty": reward}
