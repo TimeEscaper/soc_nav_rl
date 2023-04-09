@@ -75,8 +75,7 @@ def main(result_dir: str,
     if stage is None:
         stage = len(model_files) - 1
 
-    # model_file = model_files[stage]
-    model_file = Path("/home/sibirsky/rl_experiments/soc_nav_simpler_pooling_curriculum__2023_04_08__02_06_57/best_model_stage_1_circular_ped.zip")
+    model_file = model_files[stage]
     print(f"Evaluating {model_file.name} (stage {stage})")
 
     nip.run(result_dir / "config.yaml", partial(_eval, model_path=model_file, seed=seed, stage=stage),

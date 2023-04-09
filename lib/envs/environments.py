@@ -63,7 +63,7 @@ class PyMiniSimWrap:
         self._max_steps: int = None
         self._max_subgoal_steps: int = None
 
-        self._env_hash = hash(self)
+        self._id = np.random.randint(1, 150)
 
     def update_curriculum(self):
         self._curriculum.update_stage()
@@ -178,7 +178,8 @@ class PyMiniSimWrap:
         return has_collision, truncated, success, min_separation_distance
 
     def reset(self):
-        print(f"Resetting, is_eval: {self._is_eval}, hash: {self._env_hash}")
+        print(f"Resetting, stage: {self._curriculum.get_current_stage()[0]}, "
+              f"is_eval: {self._is_eval}, id: {self._id}")
 
         problem = self._curriculum.get_problem_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_problem_sampler().sample()

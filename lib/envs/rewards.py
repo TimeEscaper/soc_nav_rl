@@ -162,3 +162,15 @@ class DiscomfortPenalty(AbstractReward):
         else:
             reward = 0.
         return reward, {"discomfort_penalty": reward}
+
+
+@nip
+class StepPenalty(AbstractReward):
+
+    def __init__(self, penalty_magnitude: float = 0.01):
+        assert penalty_magnitude >= 0., "Penalty magnitude must be non-negative, minus sign will be added automatically"
+        self._penalty = -penalty_magnitude
+
+    def __call__(self, context: RewardContext) -> Tuple[float, Dict[str, float]]:
+        reward = self._penalty
+        return reward, {"discomfort_penalty": reward}

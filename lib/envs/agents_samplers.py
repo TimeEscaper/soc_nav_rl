@@ -41,15 +41,22 @@ class AbstractAgentsSampler(ABC):
 @nip
 class CompositeAgentsSampler(AbstractAgentsSampler):
 
-    def __init__(self, samplers: List[AbstractAgentsSampler]):
+    def __init__(self, samplers: List[AbstractAgentsSampler], weights: List[float] = None):
         super(CompositeAgentsSampler, self).__init__(
             max_peds=max([sampler.max_peds for sampler in samplers])
         )
-        assert len(samplers) > 0
+        assert len(samplers) > 0, f"At least one sampler must be specified"
+        if weights is not None:
+            assert len(weights) == len(samplers), f"Number of weight must be equal to the number of samplers"
+            assert np.allclose(sum(weights), 1.), f"Weight must sum up to one"
         self._samplers = tuple(samplers)
+        self._indices = np.array(sorted(range(len(samplers))))
+        self._weights = np.array(weights) if weights is not None else None
 
     def sample(self) -> AgentsSample:
-        sampler = random.choice(self._samplers)
+        idx = np.random.choice(self._indices, p=self._weights)
+        sampler = self._samplers[idx]
+        print(idx)
         return sampler.sample()
 
 
