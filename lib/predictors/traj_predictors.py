@@ -13,10 +13,12 @@ from lib.predictors.covariance_net.model_utils import get_rotation_translation_m
 class AbstractTrajectoryPredictor(ABC):
 
     def __init__(self,
+                 dt: float,
                  horizon: int,
                  history_length: int) -> None:
         assert horizon > 0, f"Prediction horizon must be positive, {horizon} is given"
         assert history_length > 0, f"History length must be positive, {history_length} is given"
+        self._dt = dt
         self._horizon = horizon
         self._history_length = history_length
 
@@ -32,6 +34,9 @@ class AbstractTrajectoryPredictor(ABC):
     def horizon(self) -> int:
         return self._horizon
 
+    @property
+    def dt(self) -> float:
+        return self._dt
 
 @nip
 class CovarianceNetPredictor(AbstractTrajectoryPredictor):
@@ -43,7 +48,8 @@ class CovarianceNetPredictor(AbstractTrajectoryPredictor):
         assert horizon <= CovarianceNetPredictor._MODEL_HORIZON, \
             f"Horizon can not be larger than horizon that the model was trained with " \
             f"({CovarianceNetPredictor._MODEL_HORIZON} steps)"
-        super(CovarianceNetPredictor, self).__init__(horizon=horizon,
+        super(CovarianceNetPredictor, self).__init__(dt=CovarianceNetPredictor._DT,
+                                                     horizon=horizon,
                                                      history_length=CovarianceNetPredictor._HISTORY_LENGTH)
         self._model = CovarianceNet(input_size=2,
                                     hidden_size=64,
@@ -112,7 +118,8 @@ class CovarianceNetPredictor(AbstractTrajectoryPredictor):
 class ConstantVelocityPredictor(AbstractTrajectoryPredictor):
 
     def __init__(self, horizon: int, history_length: int):
-        super(ConstantVelocityPredictor, self).__init__(horizon=horizon,
+        super(ConstantVelocityPredictor, self).__init__(dt=0.1,
+                                                        horizon=horizon,
                                                         history_length=history_length)
 
     def predict(self, joint_history: np.ndarray) -> Tuple[np.ndarray, Optional[np.ndarray]]:

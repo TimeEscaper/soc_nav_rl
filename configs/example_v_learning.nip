@@ -1,0 +1,105 @@
+n_train_envs: &n_train_envs 1
+env_max_steps: &env_max_steps 70
+eval_period: `(10 * env_max_steps) // n_train_envs`
+eval_n_episodes: &eval_n_episodes 10
+peds_padding: &peds_padding 8
+
+
+# Environment and problem settings
+action_space: &action_space !ContinuousPolarSubgoalActionSpace
+  lb: (1., -1.91986)
+  ub: (3., 1.91986)  # 110 degrees
+  normalize: true
+
+
+controller: &controller !DefaultMPCFactory
+  horizon: 25
+  total_peds: *peds_padding
+  lb: (0., -2.)
+  ub: (2., 2.)
+
+
+# Curriculum
+curriculum: &curriculum !SequentialCurriculum
+  agents_samplers:
+    - !RandomAgentsSampler
+      n_peds: (1, 8)
+      sampling_square: (12, 12)
+      min_robot_goal_distance: 5.
+      ped_linear_vels: (1., 1.8)
+#    - !RobotOnlySampler
+#      sampling_square: (12, 12)
+#      min_robot_goal_distance: 5.
+
+  problem_samplers:
+    - !RandomProblemSampler
+      ped_model: "hsfm"
+      robot_visible: false
+      detector_range: 5.
+      detector_fov: 360.
+      goal_reach_threshold: 0.2
+      max_steps: 70
+      subgoal_reach_threshold: 0.1
+      max_subgoal_steps: 20
+
+  stages:
+    - ("simple", 1.)
+
+  n_eval_episodes: `eval_n_episodes + 1`  # Hack for the stable-baselines3 evaluation pipeline
+
+
+# Reward function
+reward: &reward !BranchReward
+  success_reward: 1.
+  fail_reward: -0.25
+  step_reward: !CompositeReward
+    rewards:
+      - !StepPenalty
+        penalty_magnitude: 0.02
+  truncated_is_fail: false
+
+
+# Environment
+train_env_factory: !SocialNavGraphEnvFactory
+  action_space_config: *action_space
+  sim_config: !SimConfig
+    render: false
+  curriculum: *curriculum
+  tracker_factory: !CovarianceNetTrackerFactory
+    horizon: 25
+    max_ghost_tracking_time: 8
+    device: "cuda"
+  rl_tracker_horizon: 5
+  reward: *reward
+  peds_padding: *peds_padding
+  controller_factory: *controller
+  obs_mode: "v_learning"
+
+
+# RL model
+il_config: !ILConfig
+  collect_episodes: 5
+  train_epochs: 50
+  batch_size: 100
+  lr: 1e-3
+  wd: 0.
+  replay_capacity: 100000
+
+v_learning_params:
+  gamma: 0.99
+  vf_kwargs:
+    feature_extractor: !&DoubleNoPredictionAttentionExtractor
+    feature_extractor_kwargs:
+      features_dim: 256
+      embedding_dim: 128
+      n_ped_attention_heads: 8
+      n_robot_peds_attention_heads: 1
+      activation: "tanh"
+      embedding_activation: false
+    activation_fn: "tanh"
+    net_arch: [256, 128]
+
+
+# Logging
+#logger: !NeptuneLogger
+#  neptune_project: "timeescaper/soc-nav-rl"

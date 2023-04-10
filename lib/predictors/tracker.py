@@ -189,15 +189,20 @@ class PedestrianTracker:
         preds.update({k: (v.predicted_poses.copy(), v.predicted_covs.copy()) for k, v in self._ghosts.items()})
         return preds
 
-    def get_current_poses(self) -> Dict[int, np.ndarray]:
+    def get_current_poses(self, return_velocities: bool = False) -> Dict[int, np.ndarray]:
+        limit = 2 if not return_velocities else 4
         result = {}
-        result.update({k: v.current_pose[:2] for k, v in self._tracks.items()})
-        result.update({k: v.current_pose[:2] for k, v in self._ghosts.items()})
+        result.update({k: v.current_pose[:limit] for k, v in self._tracks.items()})
+        result.update({k: v.current_pose[:limit] for k, v in self._ghosts.items()})
         return result
 
     @property
     def horizon(self) -> int:
         return self._predictor.horizon
+
+    @property
+    def dt(self) -> float:
+        return self._predictor.dt
 
     @property
     def joint_track(self) -> Optional[np.ndarray]:

@@ -121,7 +121,10 @@ class PyMiniSimWrap:
         return has_collision, min_separation_distance
 
     def _step_subgoal(self, action: np.ndarray) -> Tuple[bool, bool, bool, float]:
-        subgoal = self._subgoal_to_absolute(action)
+        if action is not None:
+            subgoal = self._subgoal_to_absolute(action)
+        else:
+            subgoal = self._robot_goal.copy()
         robot_state = self._sim.current_state.world.robot.pose
         self._controller.set_goal(state=robot_state, goal=subgoal)
 
@@ -157,8 +160,9 @@ class PyMiniSimWrap:
 
         return has_collision, subgoal_reached, goal_reached, min_separation_distance
 
-    def step(self, action: np.ndarray) -> Tuple[bool, bool, bool, float]:
-        action = self._action_space_config.get_action(action)
+    def step(self, action: Optional[np.ndarray]) -> Tuple[bool, bool, bool, float]:
+        if action is not None:
+            action = self._action_space_config.get_action(action)
 
         if self._controller is None:
             has_collision, min_separation_distance = self._step_end2end(action)
@@ -271,7 +275,13 @@ class PyMiniSimWrap:
             self._renderer.clear_drawings(["pred_traj", "pred_covs"])
 
     def _get_detections(self) -> Dict[int, np.ndarray]:
-        detections = {k: np.array([v[0], v[1], 0., 0.])
+        # TODO: add velocities to tracker
+        if self._sim.current_state.world.pedestrians is not None:
+            vels = self._sim.current_state.world.pedestrians.velocities
+        else:
+            vels = None
+        detections = {k: np.array([v[0], v[1], vels[k][0], vels[k][1]]
+                                  if vels is not None else [v[0], v[1], 0., 0.])
                       for k, v in self._sim.current_state.sensors["pedestrian_detector"].reading.pedestrians.items()}
         return detections
 
@@ -307,35 +317,79 @@ class SocialNavGraphEnv(gym.Env):
                                        ped_tracker,
                                        is_eval,
                                        controller)
-        assert obs_mode in ["prediction", "current"], f"Only 'prediction' and 'current' modes available," \
-                                                      f"{obs_mode} is given"
+        assert obs_mode in ["prediction", "current", "v_learning"], \
+            f"Only 'prediction', 'current' and 'v_learning' modes available, {obs_mode} is given"
         self._reward = reward
         self._rl_tracker_horizon = rl_tracker_horizon
         self._obs_mode = obs_mode
 
         self._peds_padding = peds_padding
 
-        self.observation_space = gym.spaces.Dict({
-            "peds_traj": gym.spaces.Box(
-                low=-np.inf,
-                high=np.inf,
-                shape=(self._peds_padding, rl_tracker_horizon + 1, 2) if obs_mode == "prediction"
-                else (self._peds_padding, 5),  # Current state + predictions = 1 + horizon for prediction mode
-                dtype=np.float
-            ),
-            "peds_visibility": gym.spaces.Box(
-                low=False,
-                high=True,
-                shape=(self._peds_padding,),
-                dtype=np.bool
-            ),
-            "robot_state": gym.spaces.Box(
-                low=np.array([-np.inf, -np.inf, -np.inf, -np.pi, -np.inf, -np.inf, -np.inf]),
-                high=np.array([np.inf, np.inf, np.inf, np.pi, np.inf, np.inf, np.inf]),
-                shape=(7,),
-                dtype=np.float
-            )
-        })
+        if obs_mode != "v_learning":
+            self.observation_space = gym.spaces.Dict({
+                "peds_traj": gym.spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(self._peds_padding, rl_tracker_horizon + 1, 2) if obs_mode == "prediction"
+                    else (self._peds_padding, 5),  # Current state + predictions = 1 + horizon for prediction mode
+                    dtype=np.float
+                ),
+                "peds_visibility": gym.spaces.Box(
+                    low=False,
+                    high=True,
+                    shape=(self._peds_padding,),
+                    dtype=np.bool
+                ),
+                "robot_state": gym.spaces.Box(
+                    low=np.array([-np.inf, -np.inf, -np.inf, -np.pi, -np.inf, -np.inf, -np.inf]),
+                    high=np.array([np.inf, np.inf, np.inf, np.pi, np.inf, np.inf, np.inf]),
+                    shape=(7,),
+                    dtype=np.float
+                )
+            })
+
+        else:
+            self.observation_space = gym.spaces.Dict({
+                "peds": gym.spaces.Box(
+                    # p_x, p_y, v_x, v_y, d (in robot frame)
+                    low=np.tile(np.array([-np.inf, -np.inf, -np.inf, -np.inf, 0.]), (self._peds_padding, 1)),
+                    high=np.tile(np.array([np.inf, np.inf, np.inf, np.inf, np.inf]), (self._peds_padding, 1)),
+                    shape=(self._peds_padding, 5)
+                ),
+                "peds_visibility": gym.spaces.Box(
+                    low=False,
+                    high=True,
+                    shape=(self._peds_padding,),
+                    dtype=np.bool
+                ),
+                "peds_prediction": gym.spaces.Box(
+                    # p_x, p_y, v_x, v_y (in global frame)
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(self._peds_padding, ped_tracker.horizon, 4)
+                ),
+                "peds_prediction_cov": gym.spaces.Box(
+                    low=-np.inf,
+                    high=np.inf,
+                    shape=(self._peds_padding, ped_tracker.horizon, 2, 2)
+                ),
+                "robot": gym.spaces.Box(
+                    # d_goal, p_x^goal, p_y^goal, theta, v_x, v_y, omega
+                    low=np.array([0., -np.inf, -np.inf, -np.pi, -2., -2., -2 * np.pi]),
+                    high=np.array([np.inf, np.inf, np.inf, np.pi, 2., 2., 2 * np.pi]),
+                    shape=(7,)
+                ),
+                "robot_global": gym.spaces.Box(
+                    low=np.array([-np.inf, -np.inf, -np.pi]),
+                    high=np.array([np.inf, np.inf, np.pi]),
+                    shape=(3,)
+                ),
+                "goal_global": gym.spaces.Box(
+                    low=np.array([-np.inf, -np.inf]),
+                    high=np.array([np.inf, np.inf]),
+                    shape=(2,)
+                )
+            })
 
         self.action_space = self._sim_wrap.action_space
 
@@ -455,6 +509,63 @@ class SocialNavGraphEnv(gym.Env):
 
         return obs_peds, obs_peds_vis
 
+    def _build_obs_v_learning(self):
+        goal = self._sim_wrap.goal
+        robot_pose = self._sim_wrap.sim_state.world.robot.pose
+        robot_vel = self._sim_wrap.sim_state.world.robot.velocity
+        current_poses = self._sim_wrap.ped_tracker.get_current_poses(return_velocities=True)
+        predictions = self._sim_wrap.ped_tracker.get_predictions()
+
+        obs_peds = np.tile([-10., -10., 0., 0., 100.], (self._peds_padding, 1))
+        obs_peds_vis = np.zeros(self._peds_padding, dtype=np.bool)
+        for k, v in current_poses.items():
+            # p_x, p_y, v_x, v_y, d (in robot frame)
+            obs_peds[k, :4] = current_poses[k]
+            obs_peds[k, 4] = np.linalg.norm(current_poses[k][:2] - robot_pose[:2])
+            obs_peds_vis[k] = True
+
+        obs_peds_prediction = np.tile([-10., -10., 0., 0.],
+                                      (self._peds_padding, self._sim_wrap.ped_tracker.horizon, 1))
+        obs_peds_prediction_cov = np.tile(np.eye(2) * 0.001,
+                                          (self._peds_padding, self._sim_wrap.ped_tracker.horizon, 1, 1))
+        for k in predictions.keys():
+            prediction = predictions[k][0]
+            obs_peds_prediction[k, :, :2] = prediction[:, :2]
+            vel_estimation = np.stack((np.ediff1d(prediction[:, 0]), np.ediff1d(prediction[:, 1])), axis=1)
+            vel_estimation = np.concatenate((vel_estimation, vel_estimation[-1, np.newaxis]), axis=0)
+            obs_peds_prediction[k, :, 2:] = vel_estimation
+            obs_peds_prediction_cov[k] = predictions[k][1]
+
+        sorted_indices = np.argsort(obs_peds[:, 4])
+        obs_peds = obs_peds[sorted_indices]
+        obs_peds_vis = obs_peds_vis[sorted_indices]
+        obs_peds_prediction = obs_peds_prediction[sorted_indices]
+        obs_peds_prediction_cov = obs_peds_prediction_cov[sorted_indices]
+
+        # d_goal, p_x^goal, p_y^goal, theta, v_x, v_y, omega
+        obs_robot = np.array([
+            np.linalg.norm(robot_pose[:2] - goal[:2]),
+            robot_pose[0] - goal[0],
+            robot_pose[1] - goal[1],
+            robot_pose[2],
+            robot_vel[0],
+            robot_vel[1],
+            robot_vel[2]
+        ])
+
+        obs_robot_global = robot_pose.copy()
+        obs_goal_global = goal.copy()
+
+        return {
+            "peds": obs_peds,
+            "peds_visibility": obs_peds_vis,
+            "peds_prediction": obs_peds_prediction,
+            "peds_prediction_cov": obs_peds_prediction_cov,
+            "robot": obs_robot,
+            "robot_global": obs_robot_global,
+            "goal_global": obs_goal_global
+        }
+
     def _build_obs(self) -> Dict[str, np.ndarray]:
         goal = self._sim_wrap.goal
         robot_pose = self._sim_wrap.sim_state.world.robot.pose
@@ -462,15 +573,17 @@ class SocialNavGraphEnv(gym.Env):
         current_poses = self._sim_wrap.ped_tracker.get_current_poses()
         predictions = {k: v[0] for k, v in self._sim_wrap.ped_tracker.get_predictions().items()}
 
-        robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, robot_vel, goal)
-        obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_pose, current_poses, predictions) \
-            if self._obs_mode == "prediction" else self._build_peds_obs_current(robot_obs, current_poses)
+        if self._obs_mode != "v_learning":
+            robot_obs = SocialNavGraphEnv._build_robot_obs(robot_pose, robot_vel, goal)
+            obs_ped_traj, obs_peds_vis = self._build_peds_obs(robot_pose, current_poses, predictions) \
+                if self._obs_mode == "prediction" else self._build_peds_obs_current(robot_obs, current_poses)
 
-        return {
-            "peds_traj": obs_ped_traj,
-            "peds_visibility": obs_peds_vis,
-            "robot_state": robot_obs
-        }
+            return {
+                "peds_traj": obs_ped_traj,
+                "peds_visibility": obs_peds_vis,
+                "robot_state": robot_obs
+            }
+        return self._build_obs_v_learning()
 
 
 @nip

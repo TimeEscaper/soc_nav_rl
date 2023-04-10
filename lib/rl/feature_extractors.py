@@ -358,3 +358,73 @@ class WindowStackExtractor(BaseFeaturesExtractor):
         obs_filtered = obs_filtered * peds_visibility + torch.logical_not(peds_visibility) * self._no_peds_stub
         obs_filtered = obs_filtered.reshape((n_envs, n_stack, n_max_peds * state_dim))
         return obs_filtered
+
+
+@nip
+class DoubleNoPredictionAttentionExtractor(BaseFeaturesExtractor):
+    NAME = "double_no_pred_graph_extractor"
+
+    def __init__(self, observation_space: gym.spaces.Dict,
+                 features_dim: int = 256,
+                 embedding_dim: int = 128,
+                 n_ped_attention_heads: int = 8,
+                 n_robot_peds_attention_heads: int = 1,
+                 activation: str = "tanh",
+                 embedding_activation: bool = False):
+        super(DoubleNoPredictionAttentionExtractor, self).__init__(observation_space, features_dim)
+        activation = get_activation(activation)
+        embedding_activation = activation if embedding_activation else nn.Identity
+
+        n_max_peds, peds_state_dim = observation_space["peds"].shape
+        robot_state_dim = observation_space["robot"].shape[0]
+
+        self._peds_embedding = nn.Sequential(
+            nn.Linear(peds_state_dim, embedding_dim),
+            embedding_activation()
+        )
+        self._peds_attention = nn.MultiheadAttention(embed_dim=embedding_dim,
+                                                     num_heads=n_ped_attention_heads,
+                                                     batch_first=True)
+
+        self._robot_embedding = nn.Sequential(
+            nn.Linear(robot_state_dim, embedding_dim),
+            embedding_activation()
+        )
+        self._robot_peds_attention = nn.MultiheadAttention(embed_dim=embedding_dim,
+                                                           num_heads=n_robot_peds_attention_heads,
+                                                           batch_first=True)
+
+        self._final_feature_embedding = nn.Sequential(
+            nn.Linear(2 * embedding_dim, embedding_dim),
+            activation(),
+            nn.Linear(embedding_dim, features_dim)
+        )
+
+    def forward(self, observations) -> torch.Tensor:
+        peds = observations["peds"]  # (n_envs, n_max_peds, sequence_len, 2)
+        peds_visibility = observations["peds_visibility"]  # (n_envs, n_max_peds)
+        robot = observations["robot"]  # (n_envs, 4)
+
+        # TODO: Substitute with learnable stub for cases where no pedestrians visible
+        for i in range(peds_visibility.shape[0]):
+            if peds_visibility[i].sum() == 0.:
+                peds_visibility[i] = 1.
+        key_padding_mask = torch.logical_not(peds_visibility > 0)
+
+        peds = self._peds_embedding(peds)
+        peds, _ = self._peds_attention(peds, peds, peds,
+                                       key_padding_mask=key_padding_mask,
+                                       need_weights=False)
+
+        robot = self._robot_embedding.forward(robot)
+        robot_peds, _ = self._robot_peds_attention(query=robot.unsqueeze(1),
+                                                   key=peds,
+                                                   value=peds,
+                                                   key_padding_mask=key_padding_mask,
+                                                   need_weights=False)
+        robot_peds = robot_peds[:, 0, :]
+
+        joint_feature = torch.cat((robot, robot_peds), dim=1)
+        final_feature = self._final_feature_embedding.forward(joint_feature)
+
+        return final_feature
