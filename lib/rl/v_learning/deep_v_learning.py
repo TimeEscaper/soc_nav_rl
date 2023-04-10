@@ -2,6 +2,7 @@
 
 import gym
 import torch
+import torch.nn as nn
 
 from typing import Optional, Callable, Dict, List, Any, Union
 from dataclasses import dataclass
@@ -49,6 +50,10 @@ class DeepVLearning:
         self._logger = logger
         self._gamma = gamma
 
+    @property
+    def value_network(self) -> nn.Module:
+        return self._model
+
     def imitation_learning(self, il_config: ILConfig, output_path: Path):
         device = il_config.device
         if device != "cpu":
@@ -66,3 +71,6 @@ class DeepVLearning:
         explorer.run_k_episodes(il_config.collect_episodes, update_memory=True, imitation_learning=True)
         trainer.optimize_epoch(il_config.train_epochs,
                                str(output_path / "model_il.pth.tar"), self._logger)
+
+    def load_il(self):
+        pass

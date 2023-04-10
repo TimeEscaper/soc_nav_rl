@@ -1,4 +1,4 @@
-n_train_envs: 16
+n_train_envs: 1
 env_max_steps: &env_max_steps 200
 eval_period: `40 * env_max_steps`
 eval_n_episodes: &eval_n_episodes 10
@@ -24,24 +24,28 @@ controller: &controller !DefaultMPCFactory
 
 curriculum: &curriculum !SequentialCurriculum
   agents_samplers:
-    - !RobotOnlySampler
-      sampling_square: (12, 12)
-      min_robot_goal_distance: 5.
-    - !RandomAgentsSampler
-      n_peds: (4, 8)
-      sampling_square: (12, 12)
-      min_robot_goal_distance: 5.
-      ped_linear_vels: (1., 2.3)
+#    - !RobotOnlySampler
+#      sampling_square: (12, 12)
+#      min_robot_goal_distance: 5.
+#    - !RandomAgentsSampler
+#      n_peds: (4, 8)
+#      sampling_square: (12, 12)
+#      min_robot_goal_distance: 5.
+#      ped_linear_vels: (1., 2.3)
+    - !CircularRobotCentralSampler
+      n_peds: (3, 5)
+      ped_circle_radius: (1.8, 3)
+      ped_linear_vels: (1., 1.8)
   problem_samplers:
-    - !RandomProblemSampler
-      ped_model: "hsfm"
-      robot_visible: false
-      detector_range: 5.
-      detector_fov: 360.
-      goal_reach_threshold: 0.1
-      max_steps: 100
-      subgoal_reach_threshold: 0.1
-      max_subgoal_steps: 20
+#    - !RandomProblemSampler
+#      ped_model: "hsfm"
+#      robot_visible: false
+#      detector_range: 5.
+#      detector_fov: 360.
+#      goal_reach_threshold: 0.1
+#      max_steps: 100
+#      subgoal_reach_threshold: 0.1
+#      max_subgoal_steps: 20
     - !RandomProblemSampler
       ped_model: "hsfm"
       robot_visible: false
@@ -52,7 +56,7 @@ curriculum: &curriculum !SequentialCurriculum
       subgoal_reach_threshold: 0.1
       max_subgoal_steps: 50
   stages:
-    - ("no_ped", 1.)
+#    - ("no_ped", 1.)
     - ("random_ped", 0.8)
   n_eval_episodes: `eval_n_episodes + 1`  # Hack for the stable-baselines3 evaluation pipeline
 
@@ -69,6 +73,8 @@ reward: &reward !BranchReward
         coefficient: 0.005
       - !BasicPredictionPenalty
         factor: 20.
+      - !DiscomfortPenalty
+        coefficient: 1.
   truncated_is_fail: false
 
 
@@ -76,7 +82,7 @@ reward: &reward !BranchReward
 train_env_factory: !SocialNavGraphEnvFactory
   action_space_config: *action_space
   sim_config: !SimConfig
-    render: false
+    render: true
   curriculum: *curriculum
   tracker_factory: !CovarianceNetTrackerFactory
     horizon: 25
