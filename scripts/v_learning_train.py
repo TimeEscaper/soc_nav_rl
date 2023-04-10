@@ -8,7 +8,8 @@ from typing import Optional, Callable, Dict, Any
 from functools import partial
 from pathlib import Path
 from nip.elements import Element
-from stable_baselines3.common.vec_env import SubprocVecEnv
+# from stable_baselines3.common.vec_env import SubprocVecEnv
+from lib.envs.subproc_custom import SubprocVecEnvCustom
 from stable_baselines3.common.env_util import Monitor
 from sb3_contrib import RecurrentPPO
 
@@ -22,8 +23,8 @@ from lib.utils.layers import get_activation
 from lib.rl.v_learning.deep_v_learning import DeepVLearning, ILConfig
 
 
-def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
-    return SubprocVecEnv([env_factory for _ in range(n_proc)])
+def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnvCustom:
+    return SubprocVecEnvCustom([env_factory for _ in range(n_proc)])
 
 
 def _train(output_dir: str,
@@ -44,8 +45,8 @@ def _train(output_dir: str,
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
 
-    train_env = train_env_factory(is_eval=False)
-    # train_env = _make_subproc_env(lambda: train_env_factory(is_eval=False), n_proc=n_train_envs)
+    # train_env = train_env_factory(is_eval=False)
+    train_env = _make_subproc_env(lambda: train_env_factory(is_eval=False), n_proc=n_train_envs)
     # eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else
     #                                   train_env_factory(is_eval=True),
     #                                   curriculum,

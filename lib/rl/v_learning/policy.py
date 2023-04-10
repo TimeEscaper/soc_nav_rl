@@ -45,6 +45,7 @@ class MaxVSubgoalPolicy:
                     max_value = value
                     action = np.array([subgoal_linear, subgoal_angular])
         self._step_cnt += 1
+        print(f"Action: {action}, value: {max_value}")
         return action
 
     def _eval_action(self, subgoal_polar: np.ndarray, observation: Dict[str, np.ndarray]) -> float:

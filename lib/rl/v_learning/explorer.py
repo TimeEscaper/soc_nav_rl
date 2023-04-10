@@ -4,6 +4,8 @@ import logging
 import copy
 import torch
 
+from stable_baselines3.common.vec_env import SubprocVecEnv
+
 
 class Explorer:
     def __init__(self, env, device, memory=None, gamma=None):
@@ -29,65 +31,94 @@ class Explorer:
         cumulative_rewards = []
         collision_cases = []
         timeout_cases = []
-        for i in range(k):
-            ob = self._env.reset()
-            done = False
-            states = []
-            rewards = []
-            info = {}
-            while not done:
-                ob, reward, done, info = self._env.step(None)
-                states.append(ob)
-                rewards.append(reward)
-                #
-                # if isinstance(info, Danger):
-                #     too_close += 1
-                #     min_dist.append(info.min_dist)
 
-            done_reason = info["done_reason"] if "done_reason" in info else None
-            if done_reason is None:
-                raise ValueError("Invalid end signal from environment")
+        states = {i: [] for i in range(self._env.num_envs)}
+        rewards = {i: [] for i in range(self._env.num_envs)}
+        episode_cnt = 0
 
-            if done_reason == "success":
-                success += 1
-                # success_times.append(self._env.global_time)
-            elif done_reason == "collision":
-                collision += 1
-                collision_cases.append(i)
-            elif done_reason == "truncated":
-                timeout += 1
-                timeout_cases.append(i)
-                timeout_times.append(self._env.time_limit)
-            else:
-                raise ValueError('Invalid end signal from environment')
+        self._env.reset()
 
-            if update_memory:
-                if done_reason == "success" or done_reason == "collision":
-                    # only add positive(success) or negative(collision) experience in experience set
-                    self.update_memory(states, rewards, imitation_learning)
+        while episode_cnt < k:
+            ob, reward, done, info = self._env.step([None for _ in range(self._env.num_envs)])
 
-            cumulative_rewards.append(sum([pow(self.gamma, t)
-                                           * reward for t, reward in enumerate(rewards)]))
-            # cumulative_rewards.append(sum([pow(self.gamma, t * self.robot.time_step * self.robot.v_pref)
-            #                                * reward for t, reward in enumerate(rewards)]))
+            for i in range(self._env.num_envs):
+                states[i].append({k: v[i] for k, v in ob.items()})
+                rewards[i].append(reward[i])
 
-        success_rate = success / k
-        collision_rate = collision / k
-        assert success + collision + timeout == k
-        # avg_nav_time = sum(success_times) / len(success_times) if success_times else self._env.time_limit
+                if done[i]:
+                    done_reason = info[i]["done_reason"]
+                    if update_memory and done_reason in ("success", "collision"):
+                        self.update_memory(states[i], rewards[i], imitation_learning)
+                    states[i] = []
+                    rewards[i] = []
+                    episode_cnt += 1
+                    self._env.env_method("reset", indices=i)
+                    print(f"Finished episode {episode_cnt} out of {k}")
 
-        extra_info = '' if episode is None else 'in episode {} '.format(episode)
-        logging.info('{}has success rate: {:.2f}, collision rate: {:.2f}, total reward: {:.4f}'.
-                     format(extra_info, success_rate, collision_rate,
-                            average(cumulative_rewards)))
-        # if phase in ['val', 'test']:
-        #     num_step = sum(success_times + collision_times + timeout_times) / self.robot.time_step
-        #     logging.info('Frequency of being in danger: %.2f and average min separate distance in danger: %.2f',
-        #                  too_close / num_step, average(min_dist))
+        print(f"Total replay memory size: {len(self.memory)}")
 
-        if print_failure:
-            logging.info('Collision cases: ' + ' '.join([str(x) for x in collision_cases]))
-            logging.info('Timeout cases: ' + ' '.join([str(x) for x in timeout_cases]))
+        #     ob = self._env.reset()
+        #     done = False
+        #     states = []
+        #     rewards = []
+        #     info = {}
+        #     while not done:
+        #         if isinstance(self._env, SubprocVecEnv):
+        #             action = [None for _ in range(self._env.num_envs)]
+        #         else:
+        #             action = None
+        #         ob, reward, done, info = self._env.step(action)
+        #         states.append(ob)
+        #         rewards.append(reward)
+        #         #
+        #         # if isinstance(info, Danger):
+        #         #     too_close += 1
+        #         #     min_dist.append(info.min_dist)
+        #
+        #     done_reason = info["done_reason"] if "done_reason" in info else None
+        #     if done_reason is None:
+        #         raise ValueError("Invalid end signal from environment")
+        #
+        #     if done_reason == "success":
+        #         success += 1
+        #         # success_times.append(self._env.global_time)
+        #     elif done_reason == "collision":
+        #         collision += 1
+        #         collision_cases.append(i)
+        #     elif done_reason == "truncated":
+        #         timeout += 1
+        #         timeout_cases.append(i)
+        #         timeout_times.append(self._env.time_limit)
+        #     else:
+        #         raise ValueError('Invalid end signal from environment')
+        #
+        #     if update_memory:
+        #         if done_reason == "success" or done_reason == "collision":
+        #             # only add positive(success) or negative(collision) experience in experience set
+        #             self.update_memory(states, rewards, imitation_learning)
+        #
+        #     cumulative_rewards.append(sum([pow(self.gamma, t)
+        #                                    * reward for t, reward in enumerate(rewards)]))
+        #     # cumulative_rewards.append(sum([pow(self.gamma, t * self.robot.time_step * self.robot.v_pref)
+        #     #                                * reward for t, reward in enumerate(rewards)]))
+        #
+        # success_rate = success / k
+        # collision_rate = collision / k
+        # assert success + collision + timeout == k
+        # # avg_nav_time = sum(success_times) / len(success_times) if success_times else self._env.time_limit
+        #
+        # extra_info = '' if episode is None else 'in episode {} '.format(episode)
+        # logging.info('{}has success rate: {:.2f}, collision rate: {:.2f}, total reward: {:.4f}'.
+        #              format(extra_info, success_rate, collision_rate,
+        #                     average(cumulative_rewards)))
+        # # if phase in ['val', 'test']:
+        # #     num_step = sum(success_times + collision_times + timeout_times) / self.robot.time_step
+        # #     logging.info('Frequency of being in danger: %.2f and average min separate distance in danger: %.2f',
+        # #                  too_close / num_step, average(min_dist))
+        #
+        # if print_failure:
+        #     logging.info('Collision cases: ' + ' '.join([str(x) for x in collision_cases]))
+        #     logging.info('Timeout cases: ' + ' '.join([str(x) for x in timeout_cases]))
 
     def update_memory(self, states, rewards, imitation_learning=False):
         if self.memory is None or self.gamma is None:

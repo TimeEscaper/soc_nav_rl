@@ -123,8 +123,15 @@ class PyMiniSimWrap:
     def _step_subgoal(self, action: np.ndarray) -> Tuple[bool, bool, bool, float]:
         if action is not None:
             subgoal = self._subgoal_to_absolute(action)
+            max_subgoal_steps = self._max_subgoal_steps
         else:
+            # Controller as expert, set goal as subgoal and randomly truncate the subgoal steps
             subgoal = self._robot_goal.copy()
+            choice = np.random.choice([False, True], p=[0.4, 0.6])
+            if choice:
+                max_subgoal_steps = self._max_subgoal_steps
+            else:
+                max_subgoal_steps = np.random.randint(8, self._max_subgoal_steps)
         robot_state = self._sim.current_state.world.robot.pose
         self._controller.set_goal(state=robot_state, goal=subgoal)
 
@@ -136,6 +143,7 @@ class PyMiniSimWrap:
         subgoal_reached = False
         goal_reached = False
         min_separation_distance = np.inf
+
         while True:
             control, info = self._controller.step(robot_state, self._ped_tracker.get_predictions())
             if "mpc_traj" in info and self._renderer is not None:
@@ -155,7 +163,7 @@ class PyMiniSimWrap:
             if subgoal_reached:
                 return has_collision, subgoal_reached, goal_reached, min_separation_distance
             step_cnt += 1
-            if step_cnt >= self._max_subgoal_steps:
+            if step_cnt >= max_subgoal_steps:
                 break
 
         return has_collision, subgoal_reached, goal_reached, min_separation_distance
