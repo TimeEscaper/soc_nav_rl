@@ -9,7 +9,7 @@ from typing import Optional, Callable, Dict, Any
 from functools import partial
 from pathlib import Path
 from nip.elements import Element
-from stable_baselines3.common.vec_env import SubprocVecEnv
+from lib.envs.subproc_custom import SubprocVecEnvCustom
 from stable_baselines3.common.env_util import Monitor
 from sb3_contrib import RecurrentPPO
 
@@ -22,6 +22,10 @@ from lib.utils.sampling import seed_all
 from lib.utils.layers import get_activation
 from lib.rl.v_learning.deep_v_learning import DeepVLearning, ILConfig
 from lib.rl.v_learning.policy import MaxVSubgoalPolicy
+
+
+def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnvCustom:
+    return SubprocVecEnvCustom([env_factory for _ in range(n_proc)])
 
 
 def _eval(result_dir: Path,
@@ -39,9 +43,19 @@ def _eval(result_dir: Path,
           **_):
     seed_all(seed)
 
-    eval_env = train_env_factory(is_eval=True) if eval_env_factory is None else eval_env_factory()
-    eval_env.enable_render()
+    eval_env = _make_subproc_env(
+        lambda: train_env_factory(is_eval=True) if eval_env_factory is None else eval_env_factory(), n_proc=1)
+    eval_env.env_method("enable_render")
 
+    if v_learning_params is not None:
+        v_learning_params["policy_kwargs"] = {
+            "subgoal_linear": np.array([0., 1., 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.]),
+            "subgoal_angular": np.deg2rad(np.linspace(-110., 110, 9)),
+            "max_linear_vel":  2.,
+            "dt": 0.1,
+            "device": "cpu",
+            "n_envs": eval_env.num_envs
+        }
     rl_model = DeepVLearning(
         train_env=eval_env,
         logger=logger,
@@ -53,18 +67,28 @@ def _eval(result_dir: Path,
                                subgoal_angular=np.deg2rad(np.linspace(-110., 110, 9)),
                                max_linear_vel=2.,
                                dt=0.1,
-                               device="cuda")
-    value_network = value_network.to(device="cuda")
+                               n_envs=eval_env.num_envs,
+                               device="cpu")
+    value_network = value_network.to(device="cpu")
     _ = value_network.eval()
     policy.value_network = value_network
 
+    obs = eval_env.reset()
+    policy.reset(env_idx=None)
+    envs_to_reset = []
     while True:
-        obs = eval_env.reset()
-        policy.reset()
-        done = False
-        while not done:
-            action = policy.predict(obs)
-            obs, reward, done, info = eval_env.step(action)
+        for env_idx in envs_to_reset:
+            env_obs = eval_env.env_method("reset", indices=env_idx)[0]
+            policy.reset(env_idx=env_idx)
+            for k in obs.keys():
+                obs[k][env_idx] = env_obs[k]
+        envs_to_reset = []
+
+        action = policy.predict(obs)
+        obs, reward, done, info = eval_env.step(action)
+        for i in range(done.shape[0]):
+            if done[i]:
+                envs_to_reset.append(i)
 
     eval_env.close()
 

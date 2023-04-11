@@ -4,6 +4,7 @@ import logging
 import copy
 import torch
 
+from typing import Optional
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 
@@ -19,7 +20,7 @@ class Explorer:
         self.target_model = copy.deepcopy(target_model)
 
     def run_k_episodes(self, k, update_memory=False, imitation_learning=False, episode=None,
-                       print_failure=False):
+                       print_failure=False, policy: Optional = None, val: bool = False):
         success_times = []
         collision_times = []
         timeout_times = []
@@ -28,18 +29,25 @@ class Explorer:
         timeout = 0
         too_close = 0
         min_dist = []
-        cumulative_rewards = []
         collision_cases = []
         timeout_cases = []
 
         states = {i: [] for i in range(self._env.num_envs)}
         rewards = {i: [] for i in range(self._env.num_envs)}
         episode_cnt = 0
+        mean_cumulative_reward = 0.
+        n_successes = 0
 
-        self._env.reset()
+        ob = self._env.reset()
+        if policy is not None:
+            policy.reset(env_idx=None)
 
         while episode_cnt < k:
-            ob, reward, done, info = self._env.step([None for _ in range(self._env.num_envs)])
+            if policy is None:
+                ob, reward, done, info = self._env.step([None for _ in range(self._env.num_envs)])
+            else:
+                actions = policy.predict(ob, val=val)
+                ob, reward, done, info = self._env.step(actions)
 
             for i in range(self._env.num_envs):
                 states[i].append({k: v[i] for k, v in ob.items()})
@@ -49,13 +57,22 @@ class Explorer:
                     done_reason = info[i]["done_reason"]
                     if update_memory and done_reason in ("success", "collision"):
                         self.update_memory(states[i], rewards[i], imitation_learning)
+                    if done_reason == "success":
+                        n_successes += 1
+                    mean_cumulative_reward += sum(rewards[i])
                     states[i] = []
                     rewards[i] = []
                     episode_cnt += 1
-                    self._env.env_method("reset", indices=i)
+                    ob_local = self._env.env_method("reset", indices=i)[0]
+                    for key in ob.keys():
+                        ob[key][i] = ob_local[key]
+                    if policy is not None:
+                        policy.reset(env_idx=i)
                     print(f"Finished episode {episode_cnt} out of {k}")
 
         print(f"Total replay memory size: {len(self.memory)}")
+
+        return mean_cumulative_reward / episode_cnt, n_successes / episode_cnt
 
         #     ob = self._env.reset()
         #     done = False
@@ -141,7 +158,10 @@ class Explorer:
                 else:
                     next_state = states[i + 1]
                     gamma_bar = pow(self.gamma, 1.)
-                    value = reward + gamma_bar * self.target_model(next_state.unsqueeze(0)).data.item()
+                    next_state = {k: torch.Tensor(v).unsqueeze(0).to(self.device) for k, v in next_state.items()}
+                    with torch.no_grad():
+                        value = self.target_model(next_state).item()
+                    value = reward + gamma_bar * value
             value = torch.Tensor([value]).float()
 
             self.memory.push((state, value))

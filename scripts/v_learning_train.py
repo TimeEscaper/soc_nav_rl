@@ -1,5 +1,6 @@
 import fire
 import gym
+import numpy as np
 import nip
 import torch
 
@@ -20,7 +21,7 @@ from lib.utils import AbstractLogger, ConsoleLogger
 from lib.rl.callbacks import CustomEvalCallback
 from lib.utils.sampling import seed_all
 from lib.utils.layers import get_activation
-from lib.rl.v_learning.deep_v_learning import DeepVLearning, ILConfig
+from lib.rl.v_learning.deep_v_learning import DeepVLearning, ILConfig, RLConfig
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnvCustom:
@@ -36,7 +37,9 @@ def _train(output_dir: str,
            eval_n_episodes: int,
            curriculum: AbstractCurriculum,
            il_config: ILConfig,
+           rl_config: RLConfig,
            config: Element,
+           il_weights: Optional[str] = None,
            v_learning_params: Optional[Dict[str, Any]] = None,
            eval_env_factory: Optional[Callable] = None,
            logger: AbstractLogger = ConsoleLogger(),
@@ -47,19 +50,22 @@ def _train(output_dir: str,
 
     # train_env = train_env_factory(is_eval=False)
     train_env = _make_subproc_env(lambda: train_env_factory(is_eval=False), n_proc=n_train_envs)
-    # eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else
-    #                                   train_env_factory(is_eval=True),
-    #                                   curriculum,
-    #                                   n_eval_episodes=eval_n_episodes,
-    #                                   logger=logger,
-    #                                   train_env=train_env))
+    eval_env = _make_subproc_env(lambda: train_env_factory(is_eval=True), n_proc=1)
 
     output_dir.mkdir(parents=True)
     config_path = output_dir / "config.yaml"
     nip.dump(config_path, config)
 
+    if v_learning_params is not None:
+        v_learning_params["policy_kwargs"] = {
+            "subgoal_linear": np.array([0., 1., 1.2, 1.5, 1.8, 2.1, 2.4, 2.7, 3.]),
+            "subgoal_angular": np.deg2rad(np.linspace(-110., 110, 9)),
+            "max_linear_vel":  2.,
+            "dt": 0.1,
+        }
     rl_model = DeepVLearning(
         train_env=train_env,
+        eval_env=eval_env,
         logger=logger,
         **v_learning_params
     )
@@ -69,7 +75,11 @@ def _train(output_dir: str,
     logger.log("seed", str(seed))
     logger.upload_config(config_path)
 
-    rl_model.imitation_learning(il_config, output_dir)
+    if il_weights is None:
+        rl_model.imitation_learning(il_config, output_dir)
+    else:
+        rl_model.load_il(str(il_weights))
+    rl_model.reinforcement_learning(rl_config, output_dir)
 
     train_env.close()
     logger.close()
@@ -78,9 +88,13 @@ def _train(output_dir: str,
 def main(config: str,
          output_dir: Optional[str] = "./experiments",
          experiment_name: Optional[str] = None,
-         seed: int = 42):
+         il_weights: Optional[str] = None,
+         seed: int = 100):
     config = Path(config)
-    nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name, seed=seed),
+    if il_weights is not None:
+        il_weights = Path(il_weights)
+    nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name, seed=seed,
+                            il_weights=il_weights),
             verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
 
 

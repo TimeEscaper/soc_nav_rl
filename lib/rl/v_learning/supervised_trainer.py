@@ -70,6 +70,8 @@ class SupervisedTrainer:
         losses = 0
         for _ in range(num_batches):
             inputs, values = next(iter(self._data_loader))
+            inputs = {k: v.float().to(self.device) for k, v in inputs.items()}
+            values = values.to(self.device)
             # inputs = Variable(inputs)
             # values = Variable(values)
 

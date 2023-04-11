@@ -45,7 +45,7 @@ curriculum: &curriculum !SequentialCurriculum
   stages:
     - ("simple", 1.)
 
-  n_eval_episodes: `eval_n_episodes + 1`  # Hack for the stable-baselines3 evaluation pipeline
+  n_eval_episodes: `eval_n_episodes`
 
 
 # Reward function
@@ -63,7 +63,7 @@ reward: &reward !BranchReward
 train_env_factory: !SocialNavGraphEnvFactory
   action_space_config: *action_space
   sim_config: !SimConfig
-    render: false
+    render: true
   curriculum: *curriculum
   tracker_factory: !CovarianceNetTrackerFactory
     horizon: 25
@@ -84,6 +84,22 @@ il_config: !ILConfig
   lr: 1e-3
   wd: 0.
   replay_capacity: 100000
+
+rl_config: !RLConfig
+  train_epochs: 10
+  batch_size: 128
+  lr: 1e-3
+  wd: 0.
+  target_update_interval: 50
+  replay_capacity: 100000
+  sample_episodes: `n_train_envs`
+  train_batches: 100
+  epsilon_start: 0.5
+  epsilon_end: 0.1
+  epsilon_decay: 4000
+  eval_period: 100
+  eval_episodes: `eval_n_episodes`
+  device: "cuda"
 
 v_learning_params:
   gamma: 0.99
