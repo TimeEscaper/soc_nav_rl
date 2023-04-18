@@ -12,9 +12,9 @@ from stable_baselines3.common.env_util import Monitor
 from stable_baselines3.common.evaluation import evaluate_policy
 from sb3_contrib import RecurrentPPO
 
-from lib.envs import AbstractEnvFactory
+from lib.envs.task_wrappers import WrappedEnvFactory
 from lib.envs.curriculum import AbstractCurriculum
-from lib.envs.wrappers import EvalEnvWrapper
+from lib.envs.util_wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
 from lib.rl.callbacks import CustomEvalCallback
 from lib.utils.sampling import seed_all
@@ -30,7 +30,7 @@ def _eval(config: Element,
           rl_model: Any,
           model_path: Path,
           curriculum: AbstractCurriculum,
-          train_env_factory: Optional[AbstractEnvFactory] = None,
+          train_env_factory: Optional[WrappedEnvFactory] = None,
           eval_env_factory: Optional[Callable] = None,
           **_):
     seed_all(seed)

@@ -1,25 +1,23 @@
+from datetime import datetime
+from functools import partial
+from pathlib import Path
+from typing import Optional, Callable, Dict, Any
+
 import fire
 import gym
 import nip
-import torch
-
-from datetime import datetime
-from typing import Optional, Callable, Dict, Any
-from functools import partial
-from pathlib import Path
 from nip.elements import Element
-from stable_baselines3.common.vec_env import SubprocVecEnv
-from stable_baselines3.common.env_util import Monitor
 from sb3_contrib import RecurrentPPO
+from stable_baselines3.common.env_util import Monitor
+from stable_baselines3.common.vec_env import SubprocVecEnv
 
-from lib.envs import AbstractEnvFactory
 from lib.envs.curriculum import AbstractCurriculum
-from lib.envs.util_wrappers import EvalEnvWrapper
 from lib.envs.task_wrappers import WrappedEnvFactory
-from lib.utils import AbstractLogger, ConsoleLogger
+from lib.envs.util_wrappers import EvalEnvWrapper
 from lib.rl.callbacks import CustomEvalCallback
-from lib.utils.sampling import seed_all
+from lib.utils import AbstractLogger, ConsoleLogger
 from lib.utils.layers import get_activation
+from lib.utils.sampling import seed_all
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:

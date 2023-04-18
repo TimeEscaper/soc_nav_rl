@@ -11,6 +11,7 @@ from nip import nip
 from lib.envs.sim_config_samplers import ProblemConfig, SimConfig
 from lib.envs.curriculum import AbstractCurriculum
 from lib.envs.core_env import PyMiniSimCoreEnv
+from lib.predictors import PedestrianTracker
 from lib.utils.math import unnormalize_symmetric
 
 
@@ -335,6 +336,63 @@ class TimeLimitEnv(AbstractTaskWrapper):
         obs = self._env.reset()
         self._step_cnt = 0
         return obs
+
+
+class PredictionEnv(AbstractTaskWrapper):
+
+    def __init__(self,
+                 env: AbstractTaskEnv,
+                 tracker_factory: Callable[..., PedestrianTracker],
+                 peds_padding: int,
+                 dtype=np.float32):
+        super(PredictionEnv, self).__init__(env)
+        self._tracker = tracker_factory()
+
+        if isinstance(env.observation_space, gym.spaces.Dict):
+            obs_dict = self.observation_space.spaces.copy()
+        else:
+            obs_dict = {}
+        obs_dict.update({
+            "pred_mean": gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(peds_padding, 2),
+                dtype=dtype
+            ),
+            "pred_cov": gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(peds_padding, 2, 2),
+                dtype=dtype
+            )
+        })
+        self.observation_space = gym.spaces.Dict(obs_dict)
+
+    def step(self, action: np.ndarray):
+        obs, reward, done, info = self._env.step(action)
+        if not isinstance(obs, dict):
+            obs = {}
+
+        self._update_tracker()
+
+    def reset(self):
+        obs = self._env.reset()
+        if not isinstance(obs, dict):
+            obs = {}
+
+        self._tracker.reset()
+        self._update_tracker()
+
+    def _update_tracker(self):
+        sim_state = self._env.get_simulation_state()
+        detections = {k: np.array([v[0], v[1],
+                                   sim_state.world.pedestrians.velocities[k][0], sim_state.world.pedestrians.velocities[k][1]])
+                      for k, v in sim_state.sensors["pedestrian_detector"].reading.pedestrians.items()}
+        self._tracker.update(detections)
+
+    def _build_observation(self) -> np.ndarray:
+        robot_pose = self._env.get_simulation_state().world.robot.pose
+        
 
 
 @nip
