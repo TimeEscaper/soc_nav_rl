@@ -14,7 +14,8 @@ from sb3_contrib import RecurrentPPO
 
 from lib.envs import AbstractEnvFactory
 from lib.envs.curriculum import AbstractCurriculum
-from lib.envs.wrappers import EvalEnvWrapper
+from lib.envs.util_wrappers import EvalEnvWrapper
+from lib.envs.task_wrappers import WrappedEnvFactory
 from lib.utils import AbstractLogger, ConsoleLogger
 from lib.rl.callbacks import CustomEvalCallback
 from lib.utils.sampling import seed_all
@@ -28,7 +29,7 @@ def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
 def _train(output_dir: str,
            experiment_name: str,
            seed: int,
-           train_env_factory: AbstractEnvFactory,
+           train_env_factory: WrappedEnvFactory,
            n_train_envs: int,
            eval_period: int,
            eval_n_episodes: int,
@@ -46,6 +47,8 @@ def _train(output_dir: str,
     output_dir = Path(output_dir) / f"{prefix}{datetime.today().strftime('%Y_%m_%d__%H_%M_%S')}"
 
     train_env = _make_subproc_env(lambda: train_env_factory(is_eval=False), n_proc=n_train_envs)
+    train_env.reset()
+
     eval_env = Monitor(EvalEnvWrapper(eval_env_factory() if eval_env_factory is not None else
                                       train_env_factory(is_eval=True),
                                       curriculum,
@@ -85,7 +88,6 @@ def _train(output_dir: str,
     rl_model = rl_model(
         policy=policy,
         env=train_env,
-        verbose=1,
         tensorboard_log=str(tensorboard_dir),
         **rl_model_params
     )

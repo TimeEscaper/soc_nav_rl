@@ -17,7 +17,7 @@ from lib.controllers.controllers import AbstractController, AbstractControllerFa
 from lib.envs.curriculum import AbstractCurriculum
 from lib.envs.rewards import AbstractReward, RewardContext
 from lib.envs.sim_config_samplers import AbstractActionSpaceConfig, SimConfig
-from lib.envs.wrappers import StackHistoryWrapper
+from lib.envs.util_wrappers import StackHistoryWrapper
 from lib.predictors.tracker import PedestrianTracker
 
 

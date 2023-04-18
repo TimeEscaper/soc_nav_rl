@@ -89,6 +89,7 @@ class PyMiniSimCoreEnv:
 
         problem = self._curriculum.get_problem_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_problem_sampler().sample()
+        self._problem_config = problem
         self._goal_reach_threshold = problem.goal_reach_threshold
 
         agents_sample = self._curriculum.get_agents_sampler().sample() if not self._is_eval \
