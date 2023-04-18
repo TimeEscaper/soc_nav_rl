@@ -6,7 +6,7 @@ import gym
 import numpy as np
 from nip import nip
 
-from lib.utils.math import unnormalize
+from lib.utils.math import unnormalize_symmetric
 from lib.utils.sampling import get_or_sample_uniform, get_or_sample_bool, get_or_sample_choice
 
 
@@ -61,7 +61,7 @@ class ContinuousActionSpace(AbstractActionSpaceConfig):
     def get_action(self, policy_action: np.ndarray) -> np.ndarray:
         action = np.clip(policy_action, self.action_space.low, self.action_space.high)
         if self._normalize:
-            action = unnormalize(action, self._lb, self._ub)
+            action = unnormalize_symmetric(action, self._lb, self._ub)
         return action
 
 

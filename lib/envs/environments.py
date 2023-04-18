@@ -28,7 +28,7 @@ class AbstractEnvFactory(ABC):
         raise NotImplementedError()
 
 
-class PyMiniSimWrap:
+class PyMiniSimCoreEnv:
 
     def __init__(self,
                  action_space_config: AbstractActionSpaceConfig,
@@ -301,12 +301,12 @@ class SocialNavGraphEnv(gym.Env):
                  rl_tracker_horizon: int,
                  controller: Optional[AbstractController] = None,
                  obs_mode: str = "prediction"):
-        self._sim_wrap = PyMiniSimWrap(action_space_config,
-                                       sim_config,
-                                       curriculum,
-                                       ped_tracker,
-                                       is_eval,
-                                       controller)
+        self._sim_wrap = PyMiniSimCoreEnv(action_space_config,
+                                          sim_config,
+                                          curriculum,
+                                          ped_tracker,
+                                          is_eval,
+                                          controller)
         assert obs_mode in ["prediction", "current"], f"Only 'prediction' and 'current' modes available," \
                                                       f"{obs_mode} is given"
         self._reward = reward

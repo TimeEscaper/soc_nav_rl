@@ -3,9 +3,9 @@ import numpy as np
 from typing import Union
 
 
-def unnormalize(action: np.ndarray,
-                lb: np.ndarray,
-                ub: np.ndarray) -> np.ndarray:
+def unnormalize_symmetric(action: np.ndarray,
+                          lb: np.ndarray,
+                          ub: np.ndarray) -> np.ndarray:
     deviation = (ub - lb) / 2.
     shift = (ub + lb) / 2.
     action = (action * deviation) + shift
