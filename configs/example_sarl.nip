@@ -65,9 +65,13 @@ train_env_factory: !WrappedEnvFactory
         ub: (2., 2.)
         normalize: true
     - !EnvWrapEntry
-      env_cls: !&SARLObservationEnv
+      env_cls: !&PredictionEnv
       kwargs:
         peds_padding: *peds_padding
+        rl_horizon: 5
+        tracker_factory: !ConstantVelocityTrackerFactory
+          horizon: 25
+          max_ghost_tracking_time: 8
     - !EnvWrapEntry
       env_cls: !&SARLRewardEnv
     - !EnvWrapEntry
@@ -75,7 +79,7 @@ train_env_factory: !WrappedEnvFactory
 
 
 # RL model
-feature_extractor: !&SARLFeatureExtractor
+feature_extractor: !&SARLPredictionFeatureExtractor
 feature_extractor_kwargs:
   activation: "tanh"
 
