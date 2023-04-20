@@ -311,6 +311,58 @@ class SARLRewardEnv(AbstractTaskWrapper):
 
 
 @nip
+class SARLPredictionRewardEnv(AbstractTaskWrapper):
+
+    def __init__(self,
+                 env: AbstractTaskEnv,
+                 success_reward: float = 1.,
+                 collision_reward: float = -0.25,
+                 separation_reward_factor: float = -0.1,
+                 separation_threshold: float = 0.2,
+                 step_reward: float = -0.01):
+        super(SARLPredictionRewardEnv, self).__init__(env)
+        self._success_reward = success_reward
+        self._collision_reward = collision_reward
+        self._separation_reward_factor = separation_reward_factor
+        self._separation_threshold = separation_threshold
+        self._step_reward = step_reward
+
+        self.reward_range = (collision_reward, success_reward)
+
+    def step(self, action: np.ndarray):
+        obs, _, done, info = self._env.step(action)
+
+        if done:
+            if "done_reason" not in info:
+                raise ValueError("done_reason must be contained in info when done")
+            done_reason = info["done_reason"]
+            if done_reason == "collision":
+                reward = self._collision_reward
+            elif done_reason == "success":
+                reward = self._success_reward
+            else:
+                reward = self._step_reward
+        else:
+            pred_means = obs["pred_mean"]
+            pred_vis = obs["visibility"]
+            robot_pose = self._env.get_simulation_state().world.robot.pose[:2]
+            reward = 0.
+            for i in range(pred_means.shape[0]):
+                if not pred_vis[i]:
+                    continue
+                distances = np.linalg.norm(robot_pose - pred_means[i, :, :], axis=1)
+                min_distance = np.min(distances)
+                min_distance_idx = np.argmin(distances)
+                if min_distance - ROBOT_RADIUS - PEDESTRIAN_RADIUS >= self._separation_threshold:
+                    continue
+                separation_reward = self._separation_reward_factor / (min_distance_idx + 1)
+                if separation_reward < reward:
+                    reward = separation_reward
+
+        return obs, reward, done, info
+
+
+@nip
 class TimeLimitEnv(AbstractTaskWrapper):
 
     def __init__(self,
