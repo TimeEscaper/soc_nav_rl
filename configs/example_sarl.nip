@@ -11,16 +11,30 @@ curriculum: &curriculum !SequentialCurriculum
       sampling_square: (6, 6)
       min_robot_goal_distance: 0.9
       ped_linear_vels: (1., 1.8)
-    - !RandomAgentsSampler
-      n_peds: (1, 4)
-      sampling_square: (6, 6)
-      min_robot_goal_distance: 2.
-      ped_linear_vels: (1., 1.8)
-    - !RandomAgentsSampler
-      n_peds: (4, 8)
-      sampling_square: (8, 8)
-      min_robot_goal_distance: 4.
-      ped_linear_vels: (1., 1.8)
+
+    - !CompositeAgentsSampler
+      samplers:
+        - !RandomAgentsSampler
+          n_peds: (1, 4)
+          sampling_square: (6, 6)
+          min_robot_goal_distance: 2.
+          ped_linear_vels: (1., 1.8)
+        - !CircularRobotCentralSampler
+          n_peds: (2, 4)
+          ped_circle_radius: (1.8, 3.5)
+          ped_linear_vels: (1., 1.8)
+
+    - !CompositeAgentsSampler
+      samplers:
+        - !RandomAgentsSampler
+          n_peds: (4, 8)
+          sampling_square: (8, 8)
+          min_robot_goal_distance: 4.
+          ped_linear_vels: (1., 1.8)
+        - !CircularRobotCentralSampler
+          n_peds: (4, 6)
+          ped_circle_radius: (2, 3.5)
+          ped_linear_vels: (1., 1.8)
 
   problem_samplers:
     - !RandomProblemSampler
@@ -68,10 +82,14 @@ train_env_factory: !WrappedEnvFactory
       env_cls: !&PredictionEnv
       kwargs:
         peds_padding: *peds_padding
-        rl_horizon: 5
         tracker_factory: !ConstantVelocityTrackerFactory
-          horizon: 25
+          horizon: 7
           max_ghost_tracking_time: 8
+    - !EnvWrapEntry
+      env_cls: !&SARLPredictionEnv
+      kwargs:
+        rl_horizon: 7
+        peds_padding: *peds_padding
     - !EnvWrapEntry
       env_cls: !&TimeLimitEnv
     - !EnvWrapEntry

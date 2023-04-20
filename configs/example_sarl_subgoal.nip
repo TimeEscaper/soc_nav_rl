@@ -63,7 +63,7 @@ train_env_factory: !WrappedEnvFactory
       kwargs:
         lb: (0., -2.)
         ub: (2., 2.)
-        normalize: true
+        normalize: false
     - !EnvWrapEntry
       env_cls: !&PredictionEnv
       kwargs:

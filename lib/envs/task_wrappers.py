@@ -585,7 +585,7 @@ class SARLPredictionEnv(AbstractTaskWrapper):
         phi_goal = wrap_angle(robot_pose[2] - np.arctan2(goal[1] - robot_pose[1], goal[0] - robot_pose[0]))
         obs_robot = np.array([d_g, phi_goal, robot_vel[0], robot_vel[1], ROBOT_RADIUS])
 
-        pred_mean = obs_original["pred_mean"][:, :self._rl_horizon + 1, :]
+        pred_mean = obs_original["pred_mean"][:, :self._rl_horizon + 1, :] - robot_pose[:2]
         pred_cov = obs_original["pred_cov"][:, :self._rl_horizon, :, :]
         pred_vis = obs_original["visibility"]
 
