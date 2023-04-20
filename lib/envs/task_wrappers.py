@@ -348,6 +348,7 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
             pred_vis = self._previous_obs["visibility"]
             robot_pose = self._env.get_simulation_state().world.robot.pose[:2]
             reward = 0.
+            is_danger = False
             for i in range(pred_means.shape[0]):
                 if not pred_vis[i]:
                     continue
@@ -356,9 +357,12 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
                 min_distance_idx = np.argmin(distances)
                 if min_distance - ROBOT_RADIUS - PEDESTRIAN_RADIUS >= self._separation_threshold:
                     continue
+                is_danger = True
                 separation_reward = self._separation_reward_factor / (min_distance_idx + 1)
                 if separation_reward < reward:
                     reward = separation_reward
+            if not is_danger:
+                reward = self._step_reward
 
         self._previous_obs = obs
         return obs, reward, done, info
