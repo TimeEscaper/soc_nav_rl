@@ -25,3 +25,13 @@ def normalize_symmetric(value: Union[float, np.ndarray],
     shift = (ub + lb) / 2.
     return (value - shift) * ratio
 
+
+def local_polar_to_global(robot_pose: np.ndarray, point_polar: np.ndarray) -> np.ndarray:
+    x_rel_rot = point_polar[0] * np.cos(point_polar[1])
+    y_rel_rot = point_polar[0] * np.sin(point_polar[1])
+    theta = robot_pose[2]
+    x_rel = x_rel_rot * np.cos(theta) - y_rel_rot * np.sin(theta)
+    y_rel = x_rel_rot * np.sin(theta) + y_rel_rot * np.cos(theta)
+    x_abs = x_rel + robot_pose[0]
+    y_abs = y_rel + robot_pose[1]
+    return np.array([x_abs, y_abs])

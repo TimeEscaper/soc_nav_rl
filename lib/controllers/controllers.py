@@ -10,8 +10,11 @@ from pyminisim.core import ROBOT_RADIUS, PEDESTRIAN_RADIUS
 
 class AbstractController(ABC):
 
+    def __init__(self, horizon: int):
+        self._horizon = horizon
+
     @abstractmethod
-    def step(self, robot_state: np.ndarray, ped_predictions: Dict[str, np.ndarray]) -> \
+    def step(self, robot_state: np.ndarray, ped_predictions: Optional[Tuple[np.ndarray, np.ndarray]]) -> \
             Tuple[np.ndarray, Dict[str, Any]]:
         raise NotImplementedError()
 
@@ -24,11 +27,15 @@ class AbstractController(ABC):
     def set_goal(self, state: np.ndarray, goal: np.ndarray):
         raise NotImplementedError()
 
+    @property
+    def horizon(self) -> int:
+        return self._horizon
+
 
 class AbstractControllerFactory(ABC):
 
     @abstractmethod
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs) -> AbstractController:
         raise NotImplementedError()
 
 
@@ -50,13 +57,12 @@ class DoMPCController(AbstractController):
                  solver: str,
                  cost_type: str,
                  constraint: Optional[Tuple[str, float]]) -> None:
-        super(DoMPCController, self).__init__()
+        super(DoMPCController, self).__init__(horizon)
 
         # Architecture requires at least one dummy pedestrian in the system
         if total_peds == 0:
             total_peds = 1
         self._total_peds = total_peds
-        self._horizon = horizon
         self._dummy_ped = np.array(dummy_ped)
 
         # System model
@@ -211,7 +217,7 @@ class DoMPCController(AbstractController):
             return self._goal[:2]
         return None
 
-    def step(self, robot_state: np.ndarray, ped_predictions: Dict[int, np.ndarray]) -> \
+    def step(self, robot_state: np.ndarray, ped_predictions: Optional[Tuple[np.ndarray, np.ndarray]]) -> \
             Tuple[np.ndarray, Dict[str, Any]]:
         assert self._goal is not None, f"Goal must be set before calling 'step' method"
         if not self._initial_guess_set:
@@ -226,13 +232,14 @@ class DoMPCController(AbstractController):
 
         return control, {"mpc_traj": mpc_trajectory}
 
-    def _update_ped_tvp(self, ped_predictions: Dict[int, np.ndarray]):
+    def _update_ped_tvp(self, ped_predictions: Optional[Tuple[np.ndarray, np.ndarray]]):
         predicted_trajectories = np.tile(self._dummy_ped, (self._horizon, self._total_peds, 1))
         predicted_covs = np.tile(np.array([[0.001, 0.0], [0., 0.001]]), (self._horizon, self._total_peds, 1, 1))
 
-        for i, ped_prediction in enumerate(ped_predictions.values()):
-            predicted_trajectories[:, i, :2] = ped_prediction[0]
-            predicted_covs[:, i, :] = ped_prediction[1]
+        if ped_predictions is not None:
+            for i in range(ped_predictions[0].shape[0]):
+                predicted_trajectories[:, i, :2] = ped_predictions[0][i]
+                predicted_covs[:, i, :] = ped_predictions[1][i]
 
         predicted_covs_inv = np.linalg.inv(predicted_covs)
         predicted_covs_flatten = predicted_covs.reshape((self._horizon, self._total_peds, 4))

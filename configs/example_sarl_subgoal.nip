@@ -1,5 +1,5 @@
 n_train_envs: 16
-eval_period: `40 * 200`
+eval_period: `40 * 15`
 eval_n_episodes: &eval_n_episodes 10
 peds_padding: &peds_padding 8
 
@@ -29,21 +29,21 @@ curriculum: &curriculum !SequentialCurriculum
       detector_range: 5.
       detector_fov: 360.
       goal_reach_threshold: 0.1
-      max_steps: 100
+      max_steps: 15
     - !RandomProblemSampler
       ped_model: "hsfm"
       robot_visible: false
       detector_range: 5.
       detector_fov: 360.
       goal_reach_threshold: 0.1
-      max_steps: 100
+      max_steps: 15
     - !RandomProblemSampler
       ped_model: "hsfm"
       robot_visible: false
       detector_range: 5.
       detector_fov: 360.
       goal_reach_threshold: 0.1
-      max_steps: 120
+      max_steps: 15
 
   stages:
     - ("intro", 0.8)
@@ -68,10 +68,27 @@ train_env_factory: !WrappedEnvFactory
       env_cls: !&PredictionEnv
       kwargs:
         peds_padding: *peds_padding
-        rl_horizon: 5
-        tracker_factory: !ConstantVelocityTrackerFactory
+        tracker_factory: !CovarianceNetTrackerFactory
           horizon: 25
           max_ghost_tracking_time: 8
+          device: "cuda"
+    - !EnvWrapEntry
+      env_cls: !&SubgoalEnv
+      kwargs:
+        lb: (0.7, -1.92)
+        ub: (3., 1.92)
+        controller_factory: !DefaultMPCFactory
+          horizon: 25
+          total_peds: *peds_padding
+          lb: (0., -2.)
+          ub: (2., 2.)
+        normalize: true
+        max_subgoal_steps: 25
+    - !EnvWrapEntry
+      env_cls: !&SARLPredictionEnv
+      kwargs:
+        rl_horizon: 5
+        peds_padding: *peds_padding
     - !EnvWrapEntry
       env_cls: !&TimeLimitEnv
     - !EnvWrapEntry
