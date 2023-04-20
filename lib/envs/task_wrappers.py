@@ -328,6 +328,7 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
         self._step_reward = step_reward
 
         self.reward_range = (collision_reward, success_reward)
+        self._previous_obs = None
 
     def step(self, action: np.ndarray):
         obs, _, done, info = self._env.step(action)
@@ -343,8 +344,8 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
             else:
                 reward = self._step_reward
         else:
-            pred_means = obs["pred_mean"]
-            pred_vis = obs["visibility"]
+            pred_means = self._previous_obs["pred_mean"]
+            pred_vis = self._previous_obs["visibility"]
             robot_pose = self._env.get_simulation_state().world.robot.pose[:2]
             reward = 0.
             for i in range(pred_means.shape[0]):
@@ -359,7 +360,13 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
                 if separation_reward < reward:
                     reward = separation_reward
 
+        self._previous_obs = obs
         return obs, reward, done, info
+
+    def reset(self):
+        obs = self._env.reset()
+        self._previous_obs = obs
+        return obs
 
 
 @nip
