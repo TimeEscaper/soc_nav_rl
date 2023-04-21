@@ -84,8 +84,8 @@ class PyMiniSimCoreEnv:
         return has_collision, goal_reached, min_separation_distance
 
     def reset(self):
-        print(f"Resetting, stage: {self._curriculum.get_current_stage()[0]}, "
-              f"is_eval: {self._is_eval}, id: {self._id}")
+        # print(f"Resetting, stage: {self._curriculum.get_current_stage()[0]}, "
+        #       f"is_eval: {self._is_eval}, id: {self._id}")
 
         problem = self._curriculum.get_problem_sampler().sample() if not self._is_eval \
             else self._curriculum.get_eval_problem_sampler().sample()

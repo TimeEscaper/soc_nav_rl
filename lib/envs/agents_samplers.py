@@ -12,7 +12,7 @@ from pyminisim.core import ROBOT_RADIUS, PEDESTRIAN_RADIUS
 from pyminisim.util import wrap_angle
 
 from lib.utils.sampling import get_or_sample_bool, get_or_sample_choice, get_or_sample_uniform, random_angle, \
-    get_or_sample_int
+    get_or_sample_int, sample_joint_positions, sample_joint_positions_uniform, sample_goal, sample_goal_uniform
 
 
 @dataclass
@@ -74,7 +74,7 @@ class RandomAgentsSampler(AbstractAgentsSampler):
             max_peds=n_peds[1] if isinstance(n_peds, tuple) else n_peds
         )
         assert (isinstance(n_peds, tuple) and len(n_peds) == 2 and n_peds[1] > n_peds[0] >= 0) or (
-                    isinstance(n_peds, int) and n_peds >= 0), \
+                isinstance(n_peds, int) and n_peds >= 0), \
             f"n_peds must be int or tuple (min, max) where max > min >= 0, {n_peds} given"
         self._n_peds = n_peds
         self._sampling_square = sampling_square
@@ -91,29 +91,32 @@ class RandomAgentsSampler(AbstractAgentsSampler):
     def _sample_jointly(self, n_peds: int) -> AgentsSample:
         low = np.array([-self._sampling_square[0] / 2, -self._sampling_square[1] / 2])
         high = np.array([self._sampling_square[0] / 2, self._sampling_square[1] / 2])
-        sampled = False
-        positions = None
-        for _ in range(self._max_sample_trials):
-            positions = np.random.uniform(low, high, (n_peds + 1, 2))
-            dists = cdist(positions, positions, "euclidean")
-            dists = dists[np.triu_indices(dists.shape[0], 1)]
-            sampled = (dists > PEDESTRIAN_RADIUS + ROBOT_RADIUS).all()
-            if sampled:
-                break
-        if not sampled:
-            raise RuntimeError("Failed to sample positions")
+        # sampled = False
+        # positions = None
+        # for _ in range(self._max_sample_trials):
+        #     positions = np.random.uniform(low, high, (n_peds + 1, 2))
+        #     dists = cdist(positions, positions, "euclidean")
+        #     dists = dists[np.triu_indices(dists.shape[0], 1)]
+        #     sampled = (dists > PEDESTRIAN_RADIUS + ROBOT_RADIUS).all()
+        #     if sampled:
+        #         break
+        # if not sampled:
+        #     raise RuntimeError("Failed to sample positions")
+        positions = sample_joint_positions_uniform(low, high, n_peds + 1, PEDESTRIAN_RADIUS + ROBOT_RADIUS,
+                                                   self._max_sample_trials)
         ped_poses = positions[:-1, :]
         robot_pose = positions[-1, :]
 
-        sampled = False
-        goal = None
-        for _ in range(self._max_sample_trials):
-            goal = np.random.uniform(low, high)
-            sampled = np.linalg.norm(robot_pose - goal) >= self._min_robot_goal_distance
-            if sampled:
-                break
-        if not sampled:
-            raise RuntimeError("Failed to sample goal")
+        # sampled = False
+        # goal = None
+        # for _ in range(self._max_sample_trials):
+        #     goal = np.random.uniform(low, high)
+        #     sampled = np.linalg.norm(robot_pose - goal) >= self._min_robot_goal_distance
+        #     if sampled:
+        #         break
+        # if not sampled:
+        #     raise RuntimeError("Failed to sample goal")
+        goal = sample_goal_uniform(low, high, robot_pose, self._min_robot_goal_distance, self._max_sample_trials)
 
         ped_poses = np.concatenate((ped_poses, random_angle((n_peds, 1))), axis=-1)
         robot_pose = np.concatenate((robot_pose, random_angle((1,))), axis=-1)
@@ -242,6 +245,74 @@ class CircularRobotCentralSampler(AbstractAgentsSampler):
 
 
 @nip
+class ParallelCrossingSampler(AbstractAgentsSampler):
+    _WORLD_SIZE = (8, 8)
+    _WORLD_PED_TOP_OFFSET = 1.5
+    _ROBOT_OFFSET = 2.
+
+    def __init__(self,
+                 n_peds: Union[int, Tuple[int, int]],
+                 min_robot_goal_distance: float = 2.,
+                 ped_linear_vels: Union[float, Tuple[float, float]] = 1.5,
+                 max_sample_trials: int = 100):
+        super(ParallelCrossingSampler, self).__init__(
+            max_peds=n_peds[1] if isinstance(n_peds, tuple) else n_peds
+        )
+        if isinstance(n_peds, tuple):
+            assert len(n_peds) == 2 and n_peds[1] > n_peds[0] > 0
+        self._n_peds = n_peds
+        self._min_robot_goal_distance = min_robot_goal_distance
+        self._ped_linear_vels = ped_linear_vels
+        self._max_sample_trials = max_sample_trials
+
+    def sample(self) -> AgentsSample:
+        n_peds = get_or_sample_int(self._n_peds)
+
+        peds_lb = np.array([ParallelCrossingSampler._WORLD_SIZE[0] / 2. - ParallelCrossingSampler._WORLD_PED_TOP_OFFSET,
+                            -ParallelCrossingSampler._WORLD_SIZE[1] / 2.])
+        peds_ub = np.array([ParallelCrossingSampler._WORLD_SIZE[0] / 2.,
+                            ParallelCrossingSampler._WORLD_SIZE[1] / 2.])
+        peds_sides = np.stack((np.random.choice([1., -1.], size=n_peds), np.ones(n_peds)), axis=1)
+        ped_poses = sample_joint_positions(lambda: np.random.uniform(peds_lb, peds_ub, (n_peds, 2)) * peds_sides,
+                                           2 * PEDESTRIAN_RADIUS + 0.2, self._max_sample_trials)
+
+        ped_goals = np.stack((np.random.uniform(peds_lb[0], peds_ub[0], size=n_peds) * (-peds_sides[:, 0]),
+                              ped_poses[:, 1] + np.random.uniform(-0.1, 0.1, size=n_peds)), axis=1)
+
+        robot_lb = np.array([-ParallelCrossingSampler._ROBOT_OFFSET, 0.])
+        robot_ub = np.array([ParallelCrossingSampler._ROBOT_OFFSET, ParallelCrossingSampler._WORLD_SIZE[1] / 2])
+        robot_side = np.random.choice([1., -1.])
+        robot_pose = np.random.uniform(robot_lb, robot_ub)
+        robot_pose[1] = robot_pose[1] * robot_side
+
+        robot_goal = sample_goal(lambda: np.random.uniform(robot_lb, robot_ub) * np.array([1., -robot_side]),
+                                 robot_pose, self._min_robot_goal_distance, self._max_sample_trials)
+
+        if np.random.choice([False, True]):
+            rotation_matrix = np.array([[np.cos(np.pi / 2), -np.sin(np.pi / 2)],
+                                        [np.sin(np.pi / 2), np.cos(np.pi / 2)]])
+            robot_pose = rotation_matrix @ robot_pose
+            robot_goal = rotation_matrix @ robot_goal
+            ped_poses = np.einsum("ij,nj->ni", rotation_matrix, ped_poses)
+            ped_goals = np.einsum("ij,nj->ni", rotation_matrix, ped_goals)
+
+
+        ped_vels = get_or_sample_uniform(self._ped_linear_vels, n_peds)
+
+        ped_poses = np.concatenate((ped_poses, random_angle((n_peds, 1))), axis=-1)
+        robot_pose = np.concatenate((robot_pose, random_angle((1,))), axis=-1)
+        ped_goals = ped_goals[:, np.newaxis, :]
+
+        return AgentsSample(n_peds=n_peds,
+                            robot_initial_pose=robot_pose,
+                            robot_goal=robot_goal,
+                            world_size=ParallelCrossingSampler._WORLD_SIZE,
+                            ped_initial_poses=ped_poses,
+                            ped_linear_vels=ped_vels,
+                            ped_goals=ped_goals)
+
+
+@nip
 class ProxyFixedAgentsSampler(AbstractAgentsSampler):
 
     def __init__(self, sampler: AbstractAgentsSampler, n_samples: int):
@@ -257,7 +328,6 @@ class ProxyFixedAgentsSampler(AbstractAgentsSampler):
 
 @nip
 class HardCoreScenarioCollection(AbstractAgentsSampler):
-
     _MAX_PEDS = 8
     _N_SCENARIOS = 2
 
@@ -293,7 +363,7 @@ class HardCoreScenarioCollection(AbstractAgentsSampler):
         return AgentsSample(n_peds=n_peds,
                             world_size=(8, 8),
                             robot_initial_pose=np.array([data["init_state"][0],
-                                                        data["init_state"][1],
+                                                         data["init_state"][1],
                                                          wrap_angle(data["init_state"][2])]),
                             robot_goal=np.array([data["goal"][0], data["goal"][1]]),
                             ped_initial_poses=np.array([[e[0], e[1], wrap_angle(e[2])]
