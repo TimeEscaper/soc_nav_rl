@@ -1,5 +1,6 @@
 from .agents_samplers import AgentsSample, AbstractAgentsSampler, RandomAgentsSampler, RobotOnlySampler, \
-    FixedRobotOnlySampler, CircularRobotCentralSampler, CompositeAgentsSampler, ProxyFixedAgentsSampler
+    FixedRobotOnlySampler, CircularRobotCentralSampler, CompositeAgentsSampler, ProxyFixedAgentsSampler, \
+    HardCoreScenarioCollection
 from .sim_config_samplers import SimConfig, ProblemConfig, AbstractActionSpaceConfig, ContinuousUnicycleActionSpace, \
     MultiDiscreteUnicycleActionSpace, AbstractProblemConfigSampler, RandomProblemSampler, ProxyFixedProblemSampler, \
     ContinuousPolarSubgoalActionSpace, MultiPolarSubgoalActionSpace

@@ -17,6 +17,8 @@ from lib.envs.curriculum import AbstractCurriculum
 from lib.envs.util_wrappers import EvalEnvWrapper
 from lib.utils import AbstractLogger, ConsoleLogger
 from lib.rl.callbacks import CustomEvalCallback
+from lib.envs.agents_samplers import HardCoreScenarioCollection
+from lib.envs.curriculum import DummyCurriculum
 from lib.utils.sampling import seed_all
 
 
@@ -32,17 +34,29 @@ def _eval(config: Element,
           curriculum: AbstractCurriculum,
           train_env_factory: Optional[WrappedEnvFactory] = None,
           eval_env_factory: Optional[Callable] = None,
+          hardcore: bool = False,
           **_):
     seed_all(seed)
 
     for _ in range(stage):
         curriculum.update_stage()
+    if hardcore:
+        agents_sampler = HardCoreScenarioCollection()
+        env_curriculum = DummyCurriculum(agents_sampler=agents_sampler,
+                                         problem_sampler=curriculum.get_problem_sampler(),
+                                         n_eval_episodes=None)
+        env_eval_mode = False
+        n_eval_episodes = agents_sampler.n_scenarios
+    else:
+        env_curriculum = None
+        env_eval_mode = True
+        n_eval_episodes = 10
 
     rl_model = rl_model.load(str(model_path))
     if eval_env_factory is not None:
         eval_env = eval_env_factory()
     elif train_env_factory is not None:
-        eval_env = train_env_factory(is_eval=True)
+        eval_env = train_env_factory(is_eval=env_eval_mode, curriculum=env_curriculum)
     else:
         raise ValueError("Train env or eval env must be set")
     eval_env.enable_render()
@@ -50,7 +64,7 @@ def _eval(config: Element,
     evaluate_policy(
         rl_model,
         eval_env,
-        n_eval_episodes=10,
+        n_eval_episodes=n_eval_episodes,
         render=False,
         deterministic=True,
         return_episode_rewards=True,
@@ -68,7 +82,8 @@ def _eval(config: Element,
 
 def main(result_dir: str,
          seed: int = 42,
-         stage: Optional[int] = None):
+         stage: Optional[int] = None,
+         hardcore: bool = False):
     result_dir = Path(result_dir)
 
     model_files = sorted(result_dir.glob("*.zip"))
@@ -78,7 +93,8 @@ def main(result_dir: str,
     model_file = model_files[stage]
     print(f"Evaluating {model_file.name} (stage {stage})")
 
-    nip.run(result_dir / "config.yaml", partial(_eval, model_path=model_file, seed=seed, stage=stage),
+    nip.run(result_dir / "config.yaml", partial(_eval, model_path=model_file, seed=seed, stage=stage,
+                                                hardcore=hardcore),
             verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
 
 

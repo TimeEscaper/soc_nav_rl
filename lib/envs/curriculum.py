@@ -43,12 +43,16 @@ class DummyCurriculum(AbstractCurriculum):
     def __init__(self,
                  agents_sampler: AbstractAgentsSampler,
                  problem_sampler: AbstractProblemConfigSampler,
-                 n_eval_episodes: int):
+                 n_eval_episodes: Optional[int]):
         super(DummyCurriculum, self).__init__()
         self._agents_sampler = agents_sampler
         self._problem_sampler = problem_sampler
-        self._eval_agents_sampler = ProxyFixedAgentsSampler(agents_sampler, n_eval_episodes)
-        self._eval_problem_sampler = ProxyFixedProblemSampler(problem_sampler, n_eval_episodes)
+        if n_eval_episodes is not None and n_eval_episodes > 0:
+            self._eval_agents_sampler = ProxyFixedAgentsSampler(agents_sampler, n_eval_episodes)
+            self._eval_problem_sampler = ProxyFixedProblemSampler(problem_sampler, n_eval_episodes)
+        else:
+            self._eval_agents_sampler = None
+            self._eval_problem_sampler = None
 
     def get_problem_sampler(self) -> AbstractProblemConfigSampler:
         return self._problem_sampler
@@ -56,10 +60,10 @@ class DummyCurriculum(AbstractCurriculum):
     def get_agents_sampler(self) -> AbstractAgentsSampler:
         return self._agents_sampler
 
-    def get_eval_problem_sampler(self) -> AbstractProblemConfigSampler:
+    def get_eval_problem_sampler(self) -> Optional[AbstractProblemConfigSampler]:
         return self._eval_problem_sampler
 
-    def get_eval_agents_sampler(self) -> AbstractAgentsSampler:
+    def get_eval_agents_sampler(self) -> Optional[AbstractAgentsSampler]:
         return self._eval_agents_sampler
 
     def get_success_rate_threshold(self) -> Optional[float]:

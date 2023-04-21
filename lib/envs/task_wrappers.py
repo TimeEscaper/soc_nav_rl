@@ -692,9 +692,10 @@ class WrappedEnvFactory:
         self._curriculum = curriculum
         self._wrappers = wrappers
 
-    def __call__(self, is_eval: bool) -> gym.Env:
+    def __call__(self, is_eval: bool, curriculum: Optional[AbstractCurriculum] = None) -> gym.Env:
+        curriculum = curriculum or self._curriculum
         env = BaseEnv(sim_config=self._sim_config,
-                      curriculum=self._curriculum,
+                      curriculum=curriculum,
                       is_eval=is_eval)
         for wrapper in self._wrappers:
             env = wrapper.env_cls(env, **wrapper.kwargs)

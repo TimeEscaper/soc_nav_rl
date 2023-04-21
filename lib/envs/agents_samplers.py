@@ -1,9 +1,11 @@
-import random
+import pkg_resources
 import numpy as np
+import yaml
 
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from typing import Tuple, Optional, List, Union
+from pathlib import Path
 from nip import nip
 from scipy.spatial.distance import cdist
 from pyminisim.core import ROBOT_RADIUS, PEDESTRIAN_RADIUS
@@ -251,3 +253,56 @@ class ProxyFixedAgentsSampler(AbstractAgentsSampler):
         sample = self._samples[self._current_idx]
         self._current_idx = self._current_idx + 1 if self._current_idx < len(self._samples) - 1 else 0
         return sample
+
+
+@nip
+class HardCoreScenarioCollection(AbstractAgentsSampler):
+
+    _MAX_PEDS = 8
+    _N_SCENARIOS = 2
+
+    def __init__(self, indices: Optional[Union[int, List[int]]] = None):
+        super(HardCoreScenarioCollection, self).__init__(HardCoreScenarioCollection._MAX_PEDS)
+        self._current_idx = 0
+        self._scenarios = []
+
+        if indices is None:
+            n_scenarios = len(sorted(Path(pkg_resources.resource_filename("lib.envs", "scenarios")).glob("hardcore_*")))
+            indices = sorted(range(1, n_scenarios + 1))
+        elif isinstance(indices, int):
+            indices = [indices]
+        for i in indices:
+            self._scenarios.append(self._init_scenario(i))
+
+        self._n_scenarios = len(self._scenarios)
+
+    @property
+    def n_scenarios(self) -> int:
+        return self._n_scenarios
+
+    def sample(self) -> AgentsSample:
+        sample = self._scenarios[self._current_idx]
+        self._current_idx = self._current_idx + 1 if self._current_idx < len(self._scenarios) - 1 else 0
+        return sample
+
+    def _init_scenario(self, idx: int) -> AgentsSample:
+        with open(pkg_resources.resource_filename("lib.envs",
+                                                  f"scenarios/hardcore_{idx}.yaml")) as f:
+            data = yaml.load(f, Loader=yaml.FullLoader)
+        n_peds = data["total_peds"]
+        return AgentsSample(n_peds=n_peds,
+                            world_size=(8, 8),
+                            robot_initial_pose=np.array([data["init_state"][0],
+                                                        data["init_state"][1],
+                                                         wrap_angle(data["init_state"][2])]),
+                            robot_goal=np.array([data["goal"][0], data["goal"][1]]),
+                            ped_initial_poses=np.array([[e[0], e[1], wrap_angle(e[2])]
+                                                        for e in data["pedestrians_init_states"]]),
+                            ped_goals=np.array([[[e[0], e[1]] for e in seq] for seq in data["pedestrians_goals"]]),
+                            ped_linear_vels=np.ones(n_peds) * 1.5)
+
+        # self._scenarios.append(AgentsSample(
+        #     n_peds=8,
+        #     world_size=(8, 8),
+        #     robot_initial_pose=np.array([-3.91, -3.48, ])
+        # ))
