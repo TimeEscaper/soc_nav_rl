@@ -39,6 +39,7 @@ def _train(output_dir: str,
            logger: AbstractLogger = ConsoleLogger(),
            feature_extractor: Optional = None,
            feature_extractor_kwargs: Optional[Dict[str, Any]] = None,
+           pretrained_weights: Optional[Path] = None,
            **_):
     seed_all(seed)
     prefix = f"{experiment_name}__" if experiment_name is not None else ""
@@ -83,12 +84,17 @@ def _train(output_dir: str,
         policy = "MultiInputPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpPolicy"
     else:
         policy = "MultiInputLstmPolicy" if isinstance(train_env.observation_space, gym.spaces.Dict) else "MlpLstmPolicy"
-    rl_model = rl_model(
-        policy=policy,
-        env=train_env,
-        tensorboard_log=str(tensorboard_dir),
-        **rl_model_params
-    )
+
+    if pretrained_weights is None:
+        rl_model = rl_model(
+            policy=policy,
+            env=train_env,
+            tensorboard_log=str(tensorboard_dir),
+            **rl_model_params
+        )
+    else:
+        rl_model = rl_model.load(str(pretrained_weights), train_env,
+                                 custom_objects={"tensorboard_log": str(tensorboard_dir)})
 
     logger.init()
     logger.log("experiment_id", str(output_dir.name))
@@ -103,9 +109,14 @@ def _train(output_dir: str,
 def main(config: str,
          output_dir: Optional[str] = "./experiments",
          experiment_name: Optional[str] = None,
-         seed: int = 42):
+         seed: int = 42,
+         pretrained: Optional[str] = None):
     config = Path(config)
-    nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name, seed=seed),
+    if pretrained is not None:
+        pretrained = Path(pretrained)
+        assert pretrained.is_file(), f"Pretrained weights path {pretrained} is not a file"
+    nip.run(config, partial(_train, output_dir=output_dir, experiment_name=experiment_name, seed=seed,
+                            pretrained_weights=pretrained),
             verbose=False, return_configs=False, config_parameter='config', nonsequential=True)
 
 
