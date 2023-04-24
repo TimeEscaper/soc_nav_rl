@@ -117,7 +117,7 @@ feature_extractor_kwargs:
 
 rl_model: !&PPO 
 rl_model_params: 
-  learning_rate: 0.0003
+  learning_rate: 3e-4
   n_steps: 2048
   batch_size: 64
   n_epochs: 10

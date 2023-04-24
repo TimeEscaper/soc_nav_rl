@@ -397,11 +397,16 @@ class TimeLimitEnv(AbstractTaskWrapper):
         # else:
         #     info["TimeLimit.truncated"] = False
 
+        if isinstance(obs, dict):
+            obs["step_cnt"] = self._step_cnt
+
         return obs, reward, done, info
 
     def reset(self):
         obs = self._env.reset()
         self._step_cnt = 0
+        if isinstance(obs, dict):
+            obs["step_cnt"] = self._step_cnt
         return obs
 
 
