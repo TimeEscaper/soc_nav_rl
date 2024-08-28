@@ -1,5 +1,5 @@
 import fire
-import gym
+import gymnasium as gym
 import nip
 
 from datetime import datetime

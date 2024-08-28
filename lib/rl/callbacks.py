@@ -2,7 +2,7 @@ import os
 import warnings
 from typing import Any, Dict, Optional, Union
 
-import gym
+import gymnasium as gym
 import numpy as np
 from stable_baselines3.common.callbacks import BaseCallback, EventCallback
 from stable_baselines3.common.evaluation import evaluate_policy

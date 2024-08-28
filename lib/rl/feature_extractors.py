@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-import gym
+import gymnasium as gym
 
 from typing import Tuple
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor

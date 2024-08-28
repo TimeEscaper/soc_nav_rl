@@ -1,17 +1,16 @@
-import pkg_resources
-import numpy as np
-import yaml
-
-from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from typing import Tuple, Optional, List, Union
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Tuple, Optional, List, Union
+
+import numpy as np
+import pkg_resources
+import yaml
 from nip import nip
-from scipy.spatial.distance import cdist
 from pyminisim.core import ROBOT_RADIUS, PEDESTRIAN_RADIUS
 from pyminisim.util import wrap_angle
 
-from lib.utils.sampling import get_or_sample_bool, get_or_sample_choice, get_or_sample_uniform, random_angle, \
+from lib.utils.sampling import get_or_sample_uniform, random_angle, \
     get_or_sample_int, sample_joint_positions, sample_joint_positions_uniform, sample_goal, sample_goal_uniform
 
 

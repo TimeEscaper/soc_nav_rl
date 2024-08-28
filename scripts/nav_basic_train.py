@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 
 import fire
-import gym
+import gymnasium as gym
 import nip
 from nip.elements import Element
 from sb3_contrib import RecurrentPPO

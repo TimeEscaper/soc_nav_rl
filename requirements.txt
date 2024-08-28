@@ -1,8 +1,8 @@
---index-url https://download.pytorch.org/whl/cu118
-torch==2.0.0
-stable-baselines3[extra]==1.7.0
-sb3-contrib==1.7.0
-fire==0.5.0
-nip-config==0.8.4
-neptune
-do-mpc
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.4.0
+stable-baselines3==2.3.2
+sb3-contrib==2.3.0
+fire==0.6.0
+nip-config==0.10.3
+neptune==1.11.1
+do-mpc==4.6.4

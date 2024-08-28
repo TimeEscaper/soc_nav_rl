@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Union, Optional, Tuple, Callable
 
-import gym
+import gymnasium as gym
 import numpy as np
 from nip import nip
 from pyminisim.core import PEDESTRIAN_RADIUS, ROBOT_RADIUS
