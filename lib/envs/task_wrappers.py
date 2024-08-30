@@ -20,11 +20,12 @@ class AbstractTaskEnv(ABC, gym.Env):
 
     @abstractmethod
     def step(self, action) -> \
-            Tuple[Optional[Union[np.ndarray, Dict[str, np.ndarray]]], Optional[float], bool, Dict[str, Any]]:
+            Tuple[Optional[Union[np.ndarray, Dict[str, np.ndarray]]], Optional[float], bool, bool, Dict[str, Any]]:
         raise NotImplementedError()
 
     @abstractmethod
-    def reset(self) -> Optional[Union[np.ndarray, Dict[str, np.ndarray]]]:
+    def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[
+        Optional[Union[np.ndarray, Dict[str, np.ndarray]]], Dict[str, Any]]:
         raise NotImplementedError()
 
     @abstractmethod
@@ -69,10 +70,11 @@ class AbstractTaskWrapper(AbstractTaskEnv):
         self.reward_range = env.reward_range
 
     def step(self, action) -> \
-            Tuple[Optional[Union[np.ndarray, Dict[str, np.ndarray]]], Optional[float], bool, Dict[str, Any]]:
+            Tuple[Optional[Union[np.ndarray, Dict[str, np.ndarray]]], Optional[float], bool, bool, Dict[str, Any]]:
         return self._env.step(action)
 
-    def reset(self) -> Optional[Union[np.ndarray, Dict[str, np.ndarray]]]:
+    def reset(self, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None) -> Tuple[
+        Optional[Union[np.ndarray, Dict[str, np.ndarray]]], Dict[str, Any]]:
         return self._env.reset()
 
     def update_curriculum(self):
@@ -117,11 +119,11 @@ class BaseEnv(AbstractTaskEnv):
         elif goal_reached:
             info["done_reason"] = "success"
             info["is_success"] = True
-        return None, None, done, info
+        return None, None, done, False, info
 
-    def reset(self) -> Optional[Union[np.ndarray, Dict[str, np.ndarray]]]:
+    def reset(self, seed: int = None, options: Dict[str, Any] = None) -> Optional[Union[np.ndarray, Dict[str, np.ndarray]]]:
         self._env.reset()
-        return None
+        return None, {}
 
     def update_curriculum(self):
         self._env.update_curriculum()
@@ -217,18 +219,18 @@ class SARLObservationEnv(AbstractTaskWrapper):
         self.observation_space = gym.spaces.Dict(obs_dict)
 
     def step(self, action: np.ndarray):
-        obs, reward, done, info = self._env.step(action)
+        obs, reward, done, truncated, info = self._env.step(action)
         if not isinstance(obs, dict):
             obs = {}
         obs.update(self._build_observation())
-        return obs, reward, done, info
+        return obs, reward, done, truncated, info
 
-    def reset(self):
-        obs_dict = self._env.reset()
+    def reset(self, seed=None, options=None):
+        obs_dict, info = self._env.reset()
         if not isinstance(obs_dict, dict):
             obs_dict = {}
         obs_dict.update(self._build_observation())
-        return obs_dict
+        return obs_dict, info
 
     def _build_observation(self):
         sim_state: SimulationState = self._env.get_simulation_state()
@@ -285,7 +287,7 @@ class SARLRewardEnv(AbstractTaskWrapper):
         self.reward_range = (collision_reward, success_reward)
 
     def step(self, action: np.ndarray):
-        obs, _, done, info = self._env.step(action)
+        obs, _, done, truncated, info = self._env.step(action)
 
         if done:
             if "done_reason" not in info:
@@ -307,7 +309,7 @@ class SARLRewardEnv(AbstractTaskWrapper):
             else:
                 reward = self._step_reward
 
-        return obs, reward, done, info
+        return obs, reward, done, truncated, info
 
 
 @nip
@@ -331,7 +333,7 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
         self._previous_obs = None
 
     def step(self, action: np.ndarray):
-        obs, _, done, info = self._env.step(action)
+        obs, _, done, truncated, info = self._env.step(action)
 
         if done:
             if "done_reason" not in info:
@@ -365,12 +367,12 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
                 reward = self._step_reward
 
         self._previous_obs = obs
-        return obs, reward, done, info
+        return obs, reward, done, truncated, info
 
-    def reset(self):
-        obs = self._env.reset()
+    def reset(self, seed=None, options=None):
+        obs, info = self._env.reset()
         self._previous_obs = obs
-        return obs
+        return obs, info
 
 
 @nip
@@ -385,11 +387,11 @@ class TimeLimitEnv(AbstractTaskWrapper):
         self._step_cnt = 0
 
     def step(self, action: np.ndarray):
-        obs, reward, done, info = self._env.step(action)
+        obs, reward, done, truncated, info = self._env.step(action)
         self._step_cnt += 1
 
         if not done and self._step_cnt >= self._env.get_problem_config().max_steps:
-            done = True
+            truncated = True
             info["TimeLimit.truncated"] = True
             info["done_reason"] = "truncated"
             info["is_success"] = False
@@ -397,12 +399,12 @@ class TimeLimitEnv(AbstractTaskWrapper):
         # else:
         #     info["TimeLimit.truncated"] = False
 
-        return obs, reward, done, info
+        return obs, reward, done, truncated, info
 
-    def reset(self):
-        obs = self._env.reset()
+    def reset(self, seed=None, options=None):
+        obs, info = self._env.reset()
         self._step_cnt = 0
-        return obs
+        return obs, info
 
 
 @nip
@@ -434,15 +436,15 @@ class PredictionEnv(AbstractTaskWrapper):
                 shape=(peds_padding, self._tracker.horizon, 2, 2),  # Covariances only for prediction
                 dtype=dtype
             ),
-            "visibility": gym.spaces.Box(low=False,
-                                         high=True,
+            "visibility": gym.spaces.Box(low=0,
+                                         high=1,
                                          shape=(peds_padding,),
                                          dtype=np.bool)
         })
         self.observation_space = gym.spaces.Dict(obs_dict)
 
     def step(self, action: np.ndarray):
-        obs, reward, done, info = self._env.step(action)
+        obs, reward, done, truncated, info = self._env.step(action)
         if not isinstance(obs, dict):
             obs = {}
 
@@ -455,10 +457,10 @@ class PredictionEnv(AbstractTaskWrapper):
                                                        obs["pred_cov"].reshape(-1, 2, 2),
                                                        (173, 153, 121), 0.05, n_sigma=1))
 
-        return obs, reward, done, info
+        return obs, reward, done, truncated, info
 
-    def reset(self):
-        obs = self._env.reset()
+    def reset(self, seed=None, options=None):
+        obs, info = self._env.reset()
         if not isinstance(obs, dict):
             obs = {}
 
@@ -466,7 +468,7 @@ class PredictionEnv(AbstractTaskWrapper):
         self._update_tracker()
 
         obs.update(self._build_observation())
-        return obs
+        return obs, info
 
     def _update_tracker(self):
         sim_state = self._env.get_simulation_state()
@@ -548,6 +550,7 @@ class SubgoalEnv(AbstractTaskWrapper):
         reward = None
         done = None
         info = None
+        truncated = None
         while step_cnt < self._max_steps:
             if self._pred_vis.any():
                 predictions = (self._pred_mean[self._pred_vis, :, :], self._pred_cov[self._pred_vis, :, :, :])
@@ -557,24 +560,24 @@ class SubgoalEnv(AbstractTaskWrapper):
             if "mpc_traj" in control_info:
                 self._env.draw(f"mpc_traj", CircleDrawing(control_info["mpc_traj"], 0.04, (209, 133, 128)))
 
-            obs, reward, done, info = self._env.step(control)
+            obs, reward, done, truncated, info = self._env.step(control)
             step_cnt += 1
             self._pred_mean = obs["pred_mean"][:, 1:, :]
             self._pred_cov = obs["pred_cov"]
             self._pred_vis = obs["visibility"]
 
             robot_pose = self._env.get_simulation_state().world.robot.pose
-            if done or np.linalg.norm(robot_pose[:2] - subgoal) - ROBOT_RADIUS < self._subgoal_reach_threshold:
+            if done or truncated or np.linalg.norm(robot_pose[:2] - subgoal) - ROBOT_RADIUS < self._subgoal_reach_threshold:
                 break
 
-        return obs, reward, done, info
+        return obs, reward, done, truncated, info
 
     def reset(self):
-        obs = self._env.reset()
+        obs, info = self._env.reset()
         self._pred_mean = obs["pred_mean"][:, 1:, :]
         self._pred_cov = obs["pred_cov"]
         self._pred_vis = obs["visibility"]
-        return obs
+        return obs, info
 
 
 @nip
@@ -611,30 +614,30 @@ class SARLPredictionEnv(AbstractTaskWrapper):
                 shape=(peds_padding, rl_horizon, 2, 2),  # Covariances only for prediction
                 dtype=dtype
             ),
-            "visibility": gym.spaces.Box(low=False,
-                                         high=True,
+            "visibility": gym.spaces.Box(low=0.,
+                                         high=1.,
                                          shape=(peds_padding,),
                                          dtype=np.bool)
         })
         self.observation_space = gym.spaces.Dict(obs_dict)
 
     def step(self, action: np.ndarray):
-        obs, reward, done, info = self._env.step(action)
+        obs, reward, trunctated, done, info = self._env.step(action)
         obs_new = self._rebuild_observation(obs)
         if self._overwrite_obs:
             obs = obs_new
         else:
             obs.update(obs_new)
-        return obs, reward, done, info
+        return obs, reward, done, trunctated, info
 
     def reset(self):
-        obs = self._env.reset()
+        obs, info = self._env.reset()
         obs_new = self._rebuild_observation(obs)
         if self._overwrite_obs:
             obs = obs_new
         else:
             obs.update(obs_new)
-        return obs
+        return obs, info
 
     def _rebuild_observation(self, obs_original: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
         robot_pose = self._env.get_simulation_state().world.robot.pose

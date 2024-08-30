@@ -196,7 +196,7 @@ class CircularRobotCentralSampler(AbstractAgentsSampler):
 
     def __init__(self,
                  n_peds: Union[int, Tuple[int, int]],
-                 ped_circle_radius: Union[int, Tuple[int, int]],
+                 ped_circle_radius: Union[float, Tuple[float, float]],
                  ped_linear_vels: Union[float, Tuple[float, float]] = 1.5):
         super(CircularRobotCentralSampler, self).__init__(
             max_peds=n_peds[1] if isinstance(n_peds, tuple) else n_peds

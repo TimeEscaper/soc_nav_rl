@@ -1,4 +1,4 @@
-n_train_envs: 32
+n_train_envs: 1
 eval_period: `40 * 200`
 eval_n_episodes: &eval_n_episodes 10
 peds_padding: &peds_padding 8
@@ -7,42 +7,42 @@ peds_padding: &peds_padding 8
 curriculum: &curriculum !SequentialCurriculum 
   agents_samplers: 
     - !RandomAgentsSampler 
-      n_peds: (1, 3)
-      sampling_square: (6, 6)
+      n_peds: `(1, 3)`
+      sampling_square: `(6, 6)`
       min_robot_goal_distance: 0.9
-      ped_linear_vels: (1.0, 1.8)
+      ped_linear_vels: `(1.0, 1.8)`
 
     - !CompositeAgentsSampler 
       samplers: 
         - !RandomAgentsSampler 
-          n_peds: (1, 4)
-          sampling_square: (6, 6)
+          n_peds: `(1, 4)`
+          sampling_square: `(6, 6)`
           min_robot_goal_distance: 2.0
-          ped_linear_vels: (1.0, 1.8)
+          ped_linear_vels: `(1.0, 1.8)`
         - !CircularRobotCentralSampler 
-          n_peds: (2, 4)
-          ped_circle_radius: (1.8, 3.5)
-          ped_linear_vels: (1.0, 1.8)
+          n_peds: `(2, 4)`
+          ped_circle_radius: `(1.8, 3.5)`
+          ped_linear_vels: `(1.0, 1.8)`
         - !ParallelCrossingSampler 
-          n_peds: (2, 4)
+          n_peds: `(2, 4)`
           min_robot_goal_distance: 2.0
-          ped_linear_vels: (1.0, 1.8)
+          ped_linear_vels: `(1.0, 1.8)`
 
     - !CompositeAgentsSampler 
       samplers: 
         - !RandomAgentsSampler 
-          n_peds: (4, 8)
-          sampling_square: (8, 8)
+          n_peds: `(4, 8)`
+          sampling_square: `(8, 8)`
           min_robot_goal_distance: 4.0
-          ped_linear_vels: (1.0, 1.8)
+          ped_linear_vels: `(1.0, 1.8)`
         - !CircularRobotCentralSampler 
-          n_peds: (4, 6)
-          ped_circle_radius: (2, 3.5)
-          ped_linear_vels: (1.0, 1.8)
+          n_peds: `(4, 6)`
+          ped_circle_radius: `(2, 3.5)`
+          ped_linear_vels: `(1.0, 1.8)`
         - !ParallelCrossingSampler 
-          n_peds: (4, 8)
+          n_peds: `(4, 8)`
           min_robot_goal_distance: 3.0
-          ped_linear_vels: (1.0, 1.8)
+          ped_linear_vels: `(1.0, 1.8)`
           max_sample_trials: 1000
 
   problem_samplers: 
@@ -71,23 +71,23 @@ curriculum: &curriculum !SequentialCurriculum
       max_steps: 120
 
   stages: 
-    - ('intro', 0.8)
-    - ('medium', 0.8)
-    - ('hard', 1.0)
+    - `('intro', 0.8)`
+    - `('medium', 0.8)`
+    - `('hard', 1.0)`
 
   n_eval_episodes: `eval_n_episodes + 1`
 
 
 train_env_factory: !WrappedEnvFactory 
   sim_config: !SimConfig 
-    render: False
+    render: True
   curriculum: *curriculum
   wrappers: 
     - !EnvWrapEntry 
       env_cls: !&UnicycleEnv 
       kwargs: 
-        lb: (0.0, -2.0)
-        ub: (2.0, 2.0)
+        lb: `(0.0, -2.0)`
+        ub: `(2.0, 2.0)`
         normalize: True
 
     - !EnvWrapEntry 
