@@ -3,7 +3,8 @@ import numpy as np
 
 from abc import ABC, abstractmethod
 from typing import Union, List, Any, Dict, Tuple, Optional, Callable
-from pyminisim.core import SimulationState, ROBOT_RADIUS, PEDESTRIAN_RADIUS
+from pyminisim.core import Simulation, SimulationState, ROBOT_RADIUS, PEDESTRIAN_RADIUS
+from pyminisim.pedestrians import ReplayPedestriansPolicy
 from pyminisim.util import wrap_angle
 from pyminisim.visual import AbstractDrawing, CircleDrawing, Covariance2dDrawing
 from nip import nip
@@ -11,7 +12,7 @@ from nip import nip
 from lib.controllers import AbstractControllerFactory
 from lib.envs.sim_config_samplers import ProblemConfig, SimConfig
 from lib.envs.curriculum import AbstractCurriculum
-from lib.envs.core_env import PyMiniSimCoreEnv
+from lib.envs.core_env import PyMiniSimCoreEnv, PyMiniSimCoreReplayEnv
 from lib.predictors import PedestrianTracker
 from lib.utils.math import unnormalize_symmetric, local_polar_to_global
 
@@ -30,6 +31,14 @@ class AbstractTaskEnv(ABC, gym.Env):
 
     @abstractmethod
     def update_curriculum(self):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_simulation(self) -> Simulation:
+        raise NotImplementedError()
+
+    @abstractmethod
+    def get_sim_config(self) -> SimConfig:
         raise NotImplementedError()
 
     @abstractmethod
@@ -80,6 +89,12 @@ class AbstractTaskWrapper(AbstractTaskEnv):
     def update_curriculum(self):
         self._env.update_curriculum()
 
+    def get_simulation(self) -> Simulation:
+        return self._env.get_simulation()
+
+    def get_sim_config(self) -> SimConfig:
+        return self._env.get_sim_config()
+
     def get_simulation_state(self) -> SimulationState:
         return self._env.get_simulation_state()
 
@@ -101,9 +116,11 @@ class AbstractTaskWrapper(AbstractTaskEnv):
 
 class BaseEnv(AbstractTaskEnv):
 
-    def __init__(self, sim_config: SimConfig, curriculum: AbstractCurriculum, is_eval: bool):
+    def __init__(self, sim_config: SimConfig, curriculum: AbstractCurriculum, is_eval: bool,
+                 n_replay_steps: int):
         super(BaseEnv, self).__init__()
-        self._env = PyMiniSimCoreEnv(sim_config=sim_config, curriculum=curriculum, is_eval=is_eval)
+        self._env = PyMiniSimCoreReplayEnv(sim_config=sim_config, curriculum=curriculum, is_eval=is_eval,
+                                           max_steps=n_replay_steps)
 
         self.observation_space = None
         self.action_space = None
@@ -127,6 +144,12 @@ class BaseEnv(AbstractTaskEnv):
 
     def update_curriculum(self):
         self._env.update_curriculum()
+
+    def get_simulation(self) -> Simulation:
+        return self._env._sim
+
+    def get_sim_config(self) -> SimConfig:
+        return self._env.sim_config
 
     def get_simulation_state(self) -> SimulationState:
         return self._env.sim_state
@@ -346,7 +369,7 @@ class SARLPredictionRewardEnv(AbstractTaskWrapper):
             else:
                 reward = self._step_reward
         else:
-            pred_means = self._previous_obs["pred_mean"]
+            pred_means = self._previous_obs["pred_mean_rl"]
             pred_vis = self._previous_obs["visibility"]
             robot_pose = self._env.get_simulation_state().world.robot.pose[:2]
             reward = 0.
@@ -669,6 +692,96 @@ class SARLPredictionEnv(AbstractTaskWrapper):
 
 
 @nip
+class GTFutureEnv(AbstractTaskWrapper):
+
+    def __init__(self,
+                 env: AbstractTaskEnv,
+                 horizon: int,
+                 peds_padding: int,
+                 overwrite_obs: bool = True,
+                 dtype=np.float32):
+        super(GTFutureEnv, self).__init__(env)
+        self._horizon = horizon
+        self._overwrite_obs = overwrite_obs
+        self._peds_padding = peds_padding
+
+        if isinstance(env.observation_space, gym.spaces.Dict) and not overwrite_obs:
+            obs_dict = self.observation_space.spaces.copy()
+        else:
+            obs_dict = {}
+        obs_dict.update({
+            "robot": gym.spaces.Box(low=np.array([0., -np.pi, -np.inf, -np.inf, 0.]),
+                                    high=np.array([np.inf, np.pi, np.inf, np.inf, ROBOT_RADIUS]),
+                                    shape=(5,),
+                                    dtype=dtype),
+            "pred_mean_rl": gym.spaces.Box(
+                low=-np.inf,
+                high=np.inf,
+                shape=(peds_padding, horizon + 1, 2),  # Current pose + prediction = horizon + 1
+                dtype=dtype
+            ),
+            "visibility": gym.spaces.Box(low=0.,
+                                         high=1.,
+                                         shape=(peds_padding,),
+                                         dtype=np.bool)
+        })
+        self.observation_space = gym.spaces.Dict(obs_dict)
+
+    def step(self, action: np.ndarray):
+        obs, reward, done, truncated, info = self._env.step(action)
+        if not isinstance(obs, dict):
+            obs = {}
+        new_obs, future_poses = self._build_observation()
+        obs.update(new_obs)
+        if future_poses is not None:
+            self._env.draw("future_poses", CircleDrawing(future_poses.reshape(-1, 2),
+                                                         0.05, (0, 255, 0)))
+        return obs, reward, done, truncated, info
+
+    def reset(self, seed=None, options=None):
+        obs, info = self._env.reset()
+        if not isinstance(obs, dict):
+            obs = {}
+        obs, _ = self._build_observation()
+        obs.update(obs)
+        return obs, info
+
+    def _build_observation(self) -> Tuple[Dict[str, np.ndarray], Optional[np.ndarray]]:
+        robot_pose = self._env.get_simulation_state().world.robot.pose
+        robot_vel = self._env.get_simulation_state().world.robot.velocity
+        goal = self._env.get_goal()
+        rotation_matrix = np.array([[np.cos(robot_pose[2]), -np.sin(robot_pose[2])],
+                                    [np.sin(robot_pose[2]), np.cos(robot_pose[2])]])
+        robot_vel = rotation_matrix @ robot_vel[:2]
+        d_g = np.linalg.norm(robot_pose[:2] - goal)
+        phi_goal = wrap_angle(robot_pose[2] - np.arctan2(goal[1] - robot_pose[1], goal[0] - robot_pose[0]))
+        obs_robot = np.array([d_g, phi_goal, robot_vel[0], robot_vel[1], ROBOT_RADIUS])
+
+        obs_pred = np.tile(np.array([-10., -10.]), (self._peds_padding, self._horizon + 1, 1))
+        peds_vis = np.zeros(self._peds_padding, dtype=np.bool)
+
+        ped_model = self._env.get_simulation()._pedestrians_model
+        if ped_model is not None and isinstance(ped_model, ReplayPedestriansPolicy):
+            sim_config = self._env.get_sim_config()
+            interval = int(round(sim_config.policy_dt / sim_config.sim_dt))
+            future_poses = ped_model._poses[ped_model._current_step:(ped_model._current_step + self._horizon * interval + 1):interval, :, :2]
+
+            future_poses = np.transpose(future_poses, (1, 0, 2))
+            future_poses_relative = future_poses - robot_pose[:2]
+            future_poses_relative = np.einsum("ij,mnj->mni", rotation_matrix, future_poses_relative)
+            obs_pred[:future_poses_relative.shape[0], :, :] = future_poses_relative
+            peds_vis[:future_poses_relative.shape[0]] = True
+        else:
+            future_poses = None
+
+        return {
+            "robot": obs_robot,
+            "pred_mean_rl": obs_pred,
+            "visibility": peds_vis
+        }, future_poses
+
+
+@nip
 class EnvWrapEntry:
 
     def __init__(self, env_cls: Callable[..., AbstractTaskEnv], kwargs: Optional[Dict[str, Any]] = None):
@@ -690,16 +803,19 @@ class WrappedEnvFactory:
     def __init__(self,
                  sim_config: SimConfig,
                  curriculum: AbstractCurriculum,
-                 wrappers: List[EnvWrapEntry]):
+                 wrappers: List[EnvWrapEntry],
+                 n_replay_steps: int):
         self._sim_config = sim_config
         self._curriculum = curriculum
         self._wrappers = wrappers
+        self._n_replay_steps = n_replay_steps
 
     def __call__(self, is_eval: bool, curriculum: Optional[AbstractCurriculum] = None) -> gym.Env:
         curriculum = curriculum or self._curriculum
         env = BaseEnv(sim_config=self._sim_config,
                       curriculum=curriculum,
-                      is_eval=is_eval)
+                      is_eval=is_eval,
+                      n_replay_steps=self._n_replay_steps)
         for wrapper in self._wrappers:
             env = wrapper.env_cls(env, **wrapper.kwargs)
         return env

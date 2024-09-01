@@ -1,4 +1,4 @@
-n_train_envs: 1
+n_train_envs: 32
 eval_period: `40 * 200`
 eval_n_episodes: &eval_n_episodes 10
 peds_padding: &peds_padding 8
@@ -78,10 +78,11 @@ curriculum: &curriculum !SequentialCurriculum
   n_eval_episodes: `eval_n_episodes + 1`
 
 
-train_env_factory: !WrappedEnvFactory 
+train_env_factory: !WrappedEnvFactory
   sim_config: !SimConfig 
-    render: True
+    render: False
   curriculum: *curriculum
+  n_replay_steps: 121
   wrappers: 
     - !EnvWrapEntry 
       env_cls: !&UnicycleEnv 
@@ -91,21 +92,13 @@ train_env_factory: !WrappedEnvFactory
         normalize: True
 
     - !EnvWrapEntry 
-      env_cls: !&PredictionEnv 
+      env_cls: !&GTFutureEnv 
       kwargs: 
+        horizon: 15
         peds_padding: *peds_padding
-        tracker_factory: !ConstantVelocityTrackerFactory 
-          horizon: 7
-          max_ghost_tracking_time: 8
 
     - !EnvWrapEntry 
       env_cls: !&SARLPredictionRewardEnv
-
-    - !EnvWrapEntry 
-      env_cls: !&SARLPredictionEnv 
-      kwargs: 
-        rl_horizon: 7
-        peds_padding: *peds_padding
 
     - !EnvWrapEntry 
       env_cls: !&TimeLimitEnv
