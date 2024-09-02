@@ -1,4 +1,4 @@
-n_train_envs: 32
+n_train_envs: 40
 eval_period: `40 * 200`
 eval_n_episodes: &eval_n_episodes 10
 peds_padding: &peds_padding 8
@@ -82,7 +82,7 @@ train_env_factory: !WrappedEnvFactory
   sim_config: !SimConfig 
     render: False
   curriculum: *curriculum
-  n_replay_steps: 121
+  n_replay_steps: 130
   wrappers: 
     - !EnvWrapEntry 
       env_cls: !&UnicycleEnv 
@@ -111,7 +111,7 @@ feature_extractor_kwargs:
 rl_model: !&PPO 
 rl_model_params: 
   learning_rate: 0.0003
-  n_steps: 2048
+  n_steps: 1024
   batch_size: 64
   n_epochs: 10
   gamma: 0.99
@@ -122,6 +122,6 @@ rl_model_params:
     activation_fn: "tanh"
 
 
-logger: !ConsoleLogger
-#logger: !NeptuneLogger
-#  neptune_project: "timeescaper/soc-nav-rl"
+#logger: !ConsoleLogger
+logger: !NeptuneLogger
+  neptune_project: "timeescaper/soc-nav-rl-revival"

@@ -33,7 +33,8 @@ class EvalEnvWrapper(gym.Env):
         self._success_histories = []
 
     def step(self, action: np.ndarray):
-        obs, reward, done, info = self._env.step(action)
+        obs, reward, terminated, truncated, info = self._env.step(action)
+        done = terminated or truncated
 
         self._current_cumulative_reward += reward
         if "reward" in info:
@@ -80,10 +81,10 @@ class EvalEnvWrapper(gym.Env):
             self._current_cumulative_reward = 0
             self._current_cumulative_reward_components = {}
 
-        return obs, reward, done, info
+        return obs, reward, terminated, truncated, info
 
-    def reset(self):
-        return self._env.reset()
+    def reset(self, seed=None, options=None):
+        return self._env.reset(seed, options)
 
     def render(self, mode="human"):
         self._env.render(mode)
@@ -129,16 +130,16 @@ class StackHistoryWrapper(gym.Env):
         self._obs_histories = {}
 
     def step(self, action):
-        obs, reward, done, info = self._env.step(action)
+        obs, reward, terminated, truncated, info = self._env.step(action)
 
         self._obs_histories = {k: np.concatenate([v[1:], obs[k][np.newaxis]], axis=0)
                                for k, v in self._obs_histories.items()}
         obs.update({k: v.copy() for k, v in self._obs_histories.items()})
 
-        return obs, reward, done, info
+        return obs, reward, terminated, truncated, info
 
-    def reset(self):
-        obs = self._env.reset()
+    def reset(self, seed=None, options=None):
+        obs = self._env.reset(seed, options)
 
         self._obs_histories = {k: np.stack([obs[k] for _ in range(v)], axis=0) for k, v in self._n_stacks.items()}
         obs.update({k: v.copy() for k, v in self._obs_histories.items()})
