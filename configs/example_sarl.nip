@@ -82,7 +82,7 @@ train_env_factory: !WrappedEnvFactory
   sim_config: !SimConfig 
     render: False
   curriculum: *curriculum
-  n_replay_steps: 130
+  n_replay_steps: 140
   wrappers: 
     - !EnvWrapEntry 
       env_cls: !&UnicycleEnv 

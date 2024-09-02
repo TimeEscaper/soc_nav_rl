@@ -1,0 +1,75 @@
+n_train_envs: 1
+eval_period: `40 * 200`
+eval_n_episodes: &eval_n_episodes 10
+peds_padding: &peds_padding 8
+
+
+curriculum: &curriculum !SequentialCurriculum 
+  agents_samplers: 
+    - !CircularRobotCentralSampler 
+      n_peds: `(1, 8)`
+      ped_circle_radius: `(3.5, 4.0)`
+      ped_linear_vels: `(1.0, 1.8)`
+
+  problem_samplers: 
+    - !RandomProblemSampler 
+      ped_model: "orca"
+      robot_visible: False
+      detector_range: 5.0
+      detector_fov: 360.0
+      goal_reach_threshold: 0.1
+      max_steps: 120
+
+  stages: 
+    - `('intro', 1.0)`
+
+  n_eval_episodes: `eval_n_episodes + 1`
+
+
+train_env_factory: !WrappedEnvFactory
+  sim_config: !SimConfig 
+    render: True
+  curriculum: *curriculum
+  n_replay_steps: 140
+  wrappers: 
+    - !EnvWrapEntry 
+      env_cls: !&UnicycleEnv 
+      kwargs: 
+        lb: `(0.0, -2.0)`
+        ub: `(2.0, 2.0)`
+        normalize: True
+
+    - !EnvWrapEntry 
+      env_cls: !&GTFutureEnv 
+      kwargs: 
+        horizon: 15
+        peds_padding: *peds_padding
+
+    - !EnvWrapEntry 
+      env_cls: !&SARLPredictionRewardEnv
+
+    - !EnvWrapEntry 
+      env_cls: !&TimeLimitEnv
+
+
+feature_extractor: !&SARLPredictionFeatureExtractor 
+feature_extractor_kwargs: 
+  activation: "tanh"
+
+rl_model: !&PPO 
+rl_model_params: 
+  learning_rate: 0.0003
+  n_steps: 1024
+  batch_size: 64
+  n_epochs: 10
+  gamma: 0.99
+  clip_range: 0.2
+  max_grad_norm: 0.5
+  verbose: 1
+  policy_kwargs: 
+    activation_fn: "tanh"
+
+
+logger: !ConsoleLogger
+# logger: !NeptuneLogger
+#   neptune_project: "timeescaper/soc-nav-rl-revival"
