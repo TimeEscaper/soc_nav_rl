@@ -6,7 +6,7 @@ import numpy as np
 from nip import nip
 from pyminisim.core import PEDESTRIAN_RADIUS, ROBOT_RADIUS
 from pyminisim.core import Simulation, SimulationState
-from pyminisim.pedestrians import HeadedSocialForceModelPolicy, OptimalReciprocalCollisionAvoidance, \
+from pyminisim.pedestrians import HeadedSocialForceModelPolicy, ORCAPedestriansModel, ORCAParams, \
     RandomWaypointTracker, FixedWaypointTracker
 from pyminisim.robot import UnicycleRobotModel
 from pyminisim.sensors import PedestrianDetector, PedestrianDetectorConfig

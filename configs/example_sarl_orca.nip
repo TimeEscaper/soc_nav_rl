@@ -1,4 +1,4 @@
-n_train_envs: 1
+n_train_envs: 40
 eval_period: `40 * 200`
 eval_n_episodes: &eval_n_episodes 10
 peds_padding: &peds_padding 8

@@ -3,7 +3,7 @@ from typing import Union, Tuple, List
 import numpy as np
 from pyminisim.core import PEDESTRIAN_RADIUS, ROBOT_RADIUS
 from pyminisim.core import Simulation, SimulationState
-from pyminisim.pedestrians import HeadedSocialForceModelPolicy, OptimalReciprocalCollisionAvoidance, \
+from pyminisim.pedestrians import HeadedSocialForceModelPolicy, ORCAParams, ORCAPedestriansModel, \
     RandomWaypointTracker, FixedWaypointTracker, ReplayPedestriansPolicy
 from pyminisim.robot import UnicycleRobotModel
 from pyminisim.sensors import PedestrianDetector, PedestrianDetectorConfig
@@ -116,11 +116,11 @@ class PyMiniSimCoreEnv:
                                                          pedestrian_linear_velocity_magnitude=agents_sample.ped_linear_vels)
             elif problem.ped_model == "orca":
                 # TODO: Implement velocities in ORCA
-                ped_model = OptimalReciprocalCollisionAvoidance(dt=self._sim_config.sim_dt,
-                                                                waypoint_tracker=waypoint_tracker,
-                                                                n_pedestrians=agents_sample.n_peds,
-                                                                initial_poses=agents_sample.ped_initial_poses,
-                                                                robot_visible=problem.robot_visible)
+                ped_model = ORCAPedestriansModel(dt=self._sim_config.sim_dt,
+                                                 waypoint_tracker=waypoint_tracker,
+                                                 n_pedestrians=agents_sample.n_peds,
+                                                 initial_poses=agents_sample.ped_initial_poses,
+                                                 robot_visible=problem.robot_visible)
             else:
                 raise ValueError()
         else:
@@ -299,10 +299,12 @@ class PyMiniSimCoreReplayEnv:
                                                             pedestrian_linear_velocity_magnitude=agents_sample.ped_linear_vels)
                 elif problem.ped_model == "orca":
                     # TODO: Implement velocities in ORCA
-                    ped_model = OptimalReciprocalCollisionAvoidance(dt=self._sim_config.sim_dt,
+                    ped_model = ORCAPedestriansModel(dt=self._sim_config.sim_dt,
                                                                     waypoint_tracker=waypoint_tracker,
                                                                     n_pedestrians=agents_sample.n_peds,
                                                                     initial_poses=agents_sample.ped_initial_poses,
+                                                                    params=ORCAParams(default_max_speed=np.max(agents_sample.ped_linear_vels) + 0.1),
+                                                                    preferred_speeds=agents_sample.ped_linear_vels,
                                                                     robot_visible=problem.robot_visible)
                 else:
                     raise ValueError()
