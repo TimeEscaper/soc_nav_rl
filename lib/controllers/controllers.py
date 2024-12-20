@@ -59,6 +59,9 @@ class DoMPCController(AbstractController):
                  constraint: Optional[Tuple[str, float]]) -> None:
         super(DoMPCController, self).__init__(horizon)
 
+        self.lb = lb
+        self.ub = ub
+
         # Architecture requires at least one dummy pedestrian in the system
         if total_peds == 0:
             total_peds = 1

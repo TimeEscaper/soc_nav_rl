@@ -8,6 +8,6 @@ from .rewards import RewardContext, AbstractReward, CompositeReward, BranchRewar
     AngularVelocityPenalty, BasicPredictionPenalty, DiscomfortPenalty, StepPenalty
 from .environments import AbstractEnvFactory, SocialNavGraphEnv, SocialNavGraphEnvFactory
 from .task_wrappers import UnicycleEnv, SARLObservationEnv, SARLRewardEnv, TimeLimitEnv, WrappedEnvFactory, \
-    EnvWrapEntry, PredictionEnv, SubgoalEnv, SARLPredictionEnv, SARLPredictionRewardEnv
+    EnvWrapEntry, PredictionEnv, SubgoalEnv, SARLPredictionEnv, SARLPredictionRewardEnv, MPCActionEnv
 from .util_wrappers import EvalEnvWrapper, StackHistoryWrapper
 from .curriculum import AbstractCurriculum, DummyCurriculum, SequentialCurriculum

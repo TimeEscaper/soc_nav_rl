@@ -119,8 +119,9 @@ class BaseEnv(AbstractTaskEnv):
     def __init__(self, sim_config: SimConfig, curriculum: AbstractCurriculum, is_eval: bool,
                  n_replay_steps: int):
         super(BaseEnv, self).__init__()
-        self._env = PyMiniSimCoreReplayEnv(sim_config=sim_config, curriculum=curriculum, is_eval=is_eval,
-                                           max_steps=n_replay_steps)
+        # self._env = PyMiniSimCoreReplayEnv(sim_config=sim_config, curriculum=curriculum, is_eval=is_eval,
+        #                                    max_steps=n_replay_steps)  
+        self._env = PyMiniSimCoreEnv(sim_config=sim_config, curriculum=curriculum, is_eval=is_eval)
 
         self.observation_space = None
         self.action_space = None
@@ -601,6 +602,73 @@ class SubgoalEnv(AbstractTaskWrapper):
         self._pred_cov = obs["pred_cov"]
         self._pred_vis = obs["visibility"]
         return obs, info
+
+
+@nip
+class MPCActionEnv(AbstractTaskWrapper):
+
+    def __init__(self,
+                 env: AbstractTaskEnv,
+                 controller_factory: AbstractControllerFactory,
+                 dtype=np.float32):
+        super(MPCActionEnv, self).__init__(env)
+        self._controller = controller_factory()
+        
+        obs_space = {}
+        obs_space["action_mpc"] = gym.spaces.Box(low=np.array(self._controller.lb),
+                                                 high=np.array(self._controller.ub),
+                                                 shape=(len(self._controller.lb),))
+        for k, v in self.observation_space.items():
+            obs_space[k] = v
+        self.observation_space = gym.spaces.Dict(obs_space)
+        
+        action_space = gym.spaces.Box(low=np.concat([[0.], self.action_space.low]),
+                                      high=np.concat([[1.], self.action_space.high]),
+                                      shape=(self.action_space.shape[0] + 1,))
+        self.action_space = action_space
+        
+        self._action_mpc: Optional[np.ndarray] = None
+        # self.observation_space.update(gym.spaces.Box(
+        #     low=np.array(self._controller.lb),
+        #     high=np.array(self._controller.ub),
+        #     shape=(2,),
+        #     dtype=dtype
+        # ))
+        
+    def step(self, action: np.ndarray):
+        alpha = action[0]
+        a_ha = action[1:]
+        
+        final_action = alpha * a_ha + (1 - alpha) * self._action_mpc
+        
+        obs, reward, done, truncated, info = self._env.step(final_action)
+        
+        action_mpc = self._calc_control(obs)
+        self._action_mpc = action_mpc
+        obs["action_mpc"] = action_mpc
+        
+        return obs, reward, done, truncated, info
+
+    def reset(self):
+        obs, info = self._env.reset()
+        action_mpc = self._calc_control(obs)
+        obs["action_mpc"] = action_mpc
+        self._action_mpc = action_mpc
+        return obs, info
+    
+    def _calc_control(self, obs) -> np.ndarray:
+        pred_mean = obs["pred_mean"][:, 1:, :]
+        pred_cov = obs["pred_cov"]
+        pred_vis = obs["visibility"]
+        goal = self._env.get_goal()
+        robot_pose = self._env.get_simulation_state().world.robot.pose
+        self._controller.set_goal(state=robot_pose, goal=goal)
+        if pred_vis.any():
+            predictions = (pred_mean[pred_vis, :, :], pred_cov[pred_vis, :, :, :])
+        else:
+            predictions = None
+        control, control_info = self._controller.step(robot_pose, predictions)
+        return control
 
 
 @nip
