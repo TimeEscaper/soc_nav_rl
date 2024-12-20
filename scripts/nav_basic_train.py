@@ -21,7 +21,7 @@ from lib.utils.sampling import seed_all
 
 
 def _make_subproc_env(env_factory: Callable, n_proc: int) -> SubprocVecEnv:
-    return env_factory()
+    return SubprocVecEnv([env_factory for _ in range(n_proc)])
 
 
 def _train(output_dir: str,
