@@ -710,6 +710,7 @@ class SARLPredictionEnv(AbstractTaskWrapper):
                                          shape=(peds_padding,),
                                          dtype=np.bool)
         })
+        obs_dict["action_mpc"] = self.observation_space["action_mpc"]
         self.observation_space = gym.spaces.Dict(obs_dict)
 
     def step(self, action: np.ndarray):
@@ -755,7 +756,8 @@ class SARLPredictionEnv(AbstractTaskWrapper):
             "robot": obs_robot,
             "pred_mean_rl": pred_mean,
             "pred_cov_rl": pred_cov,
-            "visibility": pred_vis
+            "visibility": pred_vis,
+            "action_mpc": obs_original["action_mpc"]
         }
 
 
